@@ -595,3 +595,13 @@ def test_navigation_gate_reports_file_name_titles_and_blank_labels(tmp_path):
     g = gate_navigation(epub, cfg, _quiet)
     assert g['result'] == 'fail' and len(g['problems']) == 4, g
     assert any("'ch001.xhtml'" in p for p in g['problems']) and any("'book'" in p for p in g['problems'])
+
+
+@needs_pandoc
+def test_headings_that_read_like_fallback_titles_pass(tmp_path):
+    files = {'01-a.md': '# ch001.xhtml\n\nText.\n', '02-b.md': '# book\n\nText.\n'}
+    book = _book(tmp_path / 'b', files, 'options:\n  ace: false\n  epubcheck: false\n')
+    s = build(config.load(book), out_dir=tmp_path / 'o', run_ace=False, log=_quiet)
+    assert s['ok'], s['gates']['navigation']
+    pages = _nav_fields(s['epub'])[0]
+    assert pages['ch001.xhtml'] == 'ch001.xhtml' and pages['ch002.xhtml'] == 'book'

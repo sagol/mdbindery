@@ -377,14 +377,18 @@ def fallback_title(t, name, stem):
     return not t.strip() or t.strip() in (posixpath.basename(name), stem)
 
 
+def expected_title(xhtml, label, title):
+    """What a page should be titled: its label, else its first heading, else the book title."""
+    h = HEADING_RE.search(xhtml)
+    return label or (plain_text(h.group(2)) if h else '') or title
+
+
 def page_title(xhtml, name, label, title, stem):
-    """Give a page whose title pandoc left as a file name the label, else its first heading, else the book title."""
+    """Give a page whose title pandoc left as a file name its expected title."""
     m = TITLE_RE.search(xhtml)
     if not m or not fallback_title(m.group(1), name, stem):
         return xhtml
-    h = HEADING_RE.search(xhtml)
-    new = label or (plain_text(h.group(2)) if h else '') or title
-    return xhtml[:m.start(1)] + new + xhtml[m.end(1):]
+    return xhtml[:m.start(1)] + expected_title(xhtml, label, title) + xhtml[m.end(1):]
 
 
 def postprocess(src_epub, epub, cfg, has_images, epoch, all_alt=True, stem='book'):
@@ -459,12 +463,17 @@ def gate_navigation(epub, cfg, log, stem='book'):
     title = cfg.meta['title'].replace('&', '&amp;').replace('<', '&lt;')
     problems = []
     with zipfile.ZipFile(epub) as z:
-        for n in z.namelist():
+        names = z.namelist()
+        nav_name = next((n for n in names if n.endswith('nav.xhtml')), None)
+        page_labels = toc_labels(z.read(nav_name).decode('utf-8'), nav_name) if nav_name else {}
+        for n in names:
             if n.endswith('.xhtml'):
                 text = z.read(n).decode('utf-8')
                 m = TITLE_RE.search(text)
                 t = m.group(1) if m else ''
-                if fallback_title(t, n, stem) and t.strip() != title:
+                # a heading may itself read "book" or "ch001.xhtml": only an unexpected fallback is a problem
+                expected = expected_title(text, title if n == nav_name else page_labels.get(n), title)
+                if fallback_title(t, n, stem) and t.strip() != expected:
                     problems.append(f'{n}: page title is {t.strip()!r}' if t.strip() else f'{n}: no page title')
                 if n.endswith('nav.xhtml'):
                     toc = TOC_NAV_RE.search(text)
