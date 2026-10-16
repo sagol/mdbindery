@@ -605,3 +605,16 @@ def test_headings_that_read_like_fallback_titles_pass(tmp_path):
     assert s['ok'], s['gates']['navigation']
     pages = _nav_fields(s['epub'])[0]
     assert pages['ch001.xhtml'] == 'ch001.xhtml' and pages['ch002.xhtml'] == 'book'
+
+
+def test_every_build_gate_is_documented_where_builds_are_read():
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    gates = set(re.findall(r"summary\['gates'\]\['(\w+)'\]", (root / 'src/mdbindery/build.py').read_text(encoding='utf-8')))
+    assert {'links', 'navigation', 'epubcheck', 'wordcount', 'pdf'} <= gates, gates
+    tables = {rel: (root / rel).read_text(encoding='utf-8') for rel in
+              ('skills/mdbindery/SKILL.md', 'skills/mdbindery-prepare-repo/SKILL.md', 'docs/building.md')}
+    for rel, text in tables.items():
+        missing = [g for g in sorted(gates - {'pdf'}) if not re.search(rf'^\s*\| `{g}` \|', text, re.M)]
+        assert not missing, f'{rel} has no gate row for {missing}'
+    assert 'gates.pdf' in tables['skills/mdbindery/SKILL.md']
