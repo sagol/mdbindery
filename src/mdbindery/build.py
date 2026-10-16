@@ -379,9 +379,9 @@ def esc_attr(s):
 
 
 def same_label(found, wanted):
-    """Whether a label read from the EPUB is the wanted text: entities decoded and whitespace collapsed on both sides."""
-    norm = lambda s: ' '.join(html.unescape(s).split())
-    return norm(found) == norm(wanted)
+    """Whether a label read from the EPUB (XML-encoded) shows the wanted text (literal, as configured): the EPUB side
+    decoded once, whitespace collapsed on both sides."""
+    return ' '.join(html.unescape(found).split()) == ' '.join(wanted.split())
 
 
 def landmark_labels(opts):

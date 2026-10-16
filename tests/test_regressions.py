@@ -652,7 +652,9 @@ def test_landmark_labels_with_markup_characters_and_padding(tmp_path):
     cases = (("  cover_title: 'Cover > main & \"x\"'\n  title_page_title: '<Title>'\n",
               {'cover': 'Cover > main & "x"', 'titlepage': '<Title>', 'toc': 'Contents'}),
              ("  toc_title: ' Contents '\n  cover_title: '  Cover  '\n",
-              {'cover': 'Cover', 'titlepage': 'Title Page', 'toc': 'Contents'}))
+              {'cover': 'Cover', 'titlepage': 'Title Page', 'toc': 'Contents'}),
+             ("  cover_title: 'Cover &amp; art'\n  title_page_title: '&copy; page'\n  toc_title: 'Contents &amp; index'\n",
+              {'cover': 'Cover &amp; art', 'titlepage': '&copy; page', 'toc': 'Contents &amp; index'}))
     for i, (extra, want) in enumerate(cases):
         book = _book(tmp_path / f'b{i}', {'01-a.md': '# A\n\nText.\n'},
                      f'options:\n  ace: false\n  epubcheck: false\n{extra}')
@@ -687,6 +689,15 @@ def test_navigation_gate_reports_landmarks_guide_ncx_cover_and_cover_alternative
     want = ('landmark titlepage has no label', "landmark cover reads 'Cover', not 'Обложка'",
             'guide entry toc has no title', 'the cover image has no text alternative', "names 'cover_jpg'")
     assert all(any(w in p for p in g['problems']) for w in want) and len(g['problems']) == len(want), g['problems']
+    # a label shows the configured text literally: entity-like text in the option is text, never markup
+    with zipfile.ZipFile(epub, 'w') as z:
+        z.writestr('EPUB/nav.xhtml', nav.replace('> </a>', '>Титульный лист</a>').replace('>Cover<', '>Cover &amp; art<'))
+        z.writestr('EPUB/content.opf', opf.replace('title=""', 'title="Содержание"'))
+        z.writestr('EPUB/text/ch001.xhtml', page)
+    for option, ok in (('Cover &amp; art', False), ('Cover & art', True)):
+        cfg = config.load(_book(tmp_path / f'c{ok}', {'01-a.md': '# A\n'}, f"  lang: ru\noptions:\n  cover_title: '{option}'\n"))
+        g = gate_navigation(epub, cfg, _quiet)
+        assert (g['result'] == 'pass') == ok, (option, g)
 
 
 def test_every_build_gate_is_documented_where_builds_are_read():
