@@ -612,7 +612,7 @@ def test_every_build_gate_is_documented_where_builds_are_read():
     root = Path(__file__).resolve().parent.parent
     gates = set(re.findall(r"summary\['gates'\]\['(\w+)'\]", (root / 'src/mdbindery/build.py').read_text(encoding='utf-8')))
     assert {'links', 'navigation', 'epubcheck', 'wordcount', 'pdf'} <= gates, gates
-    docs = ('skills/mdbindery/SKILL.md', 'skills/mdbindery-prepare-repo/SKILL.md', 'docs/building.md')
+    docs = ('skills/mdbindery/SKILL.md', 'skills/mdbindery-prepare-repo/SKILL.md', 'docs/building.md', 'docs/design.md')
     absent = [rel for rel in docs if not (root / rel).is_file()]
     if absent:   # the sdist ships the tests but not the skills or docs
         pytest.skip(f'repository documentation not in this tree: {absent}')
