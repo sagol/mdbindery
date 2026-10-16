@@ -263,7 +263,7 @@ Per-file section removal is `drop_sections` under [files](#files). `mdbindery ch
 | `toc_depth` | whole number | `2` | 1 to 6 | Heading levels shown in the table of contents and the navigation document. |
 | `toc_title` | text | `Contents` or `Содержание`, by `metadata.lang` | | Heading of the contents page, and the contents' label in the EPUB landmarks and guide. Set it for books in other languages; without it their contents page is headed with the book title and the build log says so. |
 | `cover_title` | text | `Cover` or `Обложка`, by `metadata.lang` | | The cover's label in the EPUB landmarks and guide, and the start of the cover image's text alternative. Set it for books in other languages; without it pandoc's English label stays and the build log says so. |
-| `title_page_title` | text | `Title Page` or `Титульный лист`, by `metadata.lang` | | The title page's label in the EPUB landmarks and guide. Set it for books in other languages; without it pandoc's English label stays and the build log says so. |
+| `title_page_title` | text | `Title Page` or `Титульный лист`, by `metadata.lang` | | The title page's label in the EPUB landmarks (pandoc's guide has no title-page entry). Set it for books in other languages; without it pandoc's English label stays and the build log says so. |
 | `split_level` | whole number | `1` | 1 to 6 | Heading level at which a new XHTML file starts inside the EPUB. |
 
 The word-count gate compares the whole book in reading order, so any `split_level` works with it.

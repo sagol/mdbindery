@@ -646,6 +646,24 @@ def test_landmarks_guide_and_cover_by_language_and_option(tmp_path):
         config.load(_book(tmp_path / 'bad', {'01-a.md': '# A\n'}, 'options:\n  cover_title: [a]\n'))
 
 
+@needs_pandoc
+def test_landmark_labels_with_markup_characters_and_padding(tmp_path):
+    import html
+    cases = (("  cover_title: 'Cover > main & \"x\"'\n  title_page_title: '<Title>'\n",
+              {'cover': 'Cover > main & "x"', 'titlepage': '<Title>', 'toc': 'Contents'}),
+             ("  toc_title: ' Contents '\n  cover_title: '  Cover  '\n",
+              {'cover': 'Cover', 'titlepage': 'Title Page', 'toc': 'Contents'}))
+    for i, (extra, want) in enumerate(cases):
+        book = _book(tmp_path / f'b{i}', {'01-a.md': '# A\n\nText.\n'},
+                     f'options:\n  ace: false\n  epubcheck: false\n{extra}')
+        s = build(config.load(book), out_dir=tmp_path / f'o{i}', run_ace=False, log=_quiet)
+        assert s['ok'], s['gates']['navigation']
+        labels, guide, _, _, alt = _landmark_fields(s['epub'])
+        assert {k: ' '.join(html.unescape(v).split()) for k, v in labels.items()} == want, labels
+        assert ' '.join(html.unescape(guide['cover']).split()) == want['cover'], guide
+        assert html.unescape(alt).startswith(want['cover'] + '. T'), alt
+
+
 def test_navigation_gate_reports_landmarks_guide_ncx_cover_and_cover_alternative(tmp_path):
     from mdbindery.build import gate_navigation
     epub = tmp_path / 'b.epub'

@@ -1,5 +1,6 @@
 """Build pipeline: analyze (pre-pass, per-file AST, link resolution) and build (EPUB/PDF + gates)."""
 import datetime
+import html
 import json
 import os
 import platform
@@ -357,12 +358,12 @@ NAV_LINK_RE = re.compile(r'<a\b[^>]*\bhref="([^"#]*)[^"]*"[^>]*>(.*?)</a>', re.S
 NCX_LABEL_RE = re.compile(r'<navLabel>\s*<text>(.*?)</text>', re.S)
 NCX_TITLE_PAGE_RE = re.compile(r'(<navLabel>\s*<text>)\s*(</text>\s*</navLabel>\s*<content src="[^"]*title_page\.xhtml")')
 LANDMARKS_RE = re.compile(r'<nav\b[^>]*\bepub:type="landmarks".*?</nav>', re.S)
-LINK_RE = re.compile(r'(<a\b([^>]*)>)(.*?)(</a>)', re.S)
-GUIDE_REF_RE = re.compile(r'<reference\b[^>]*>')
-NCX_COVER_RE = re.compile(r'(<meta\b[^>]*\bname="cover"[^>]*\bcontent=")([^"]*)(")')
-OPF_COVER_RE = re.compile(r'<meta\b[^>]*\bname="cover"[^>]*\bcontent="([^"]*)"')
-MANIFEST_ITEM_RE = re.compile(r'<item\b[^>]*>')
-SVG_RE = re.compile(r'<svg\b([^>]*)>(.*?)</svg>', re.S)
+TAG = r'(?:[^>"]|"[^"]*")*'   # a tag's inside, where a quoted value may hold '>'
+LINK_RE = re.compile(r'(<a\b(' + TAG + r')>)(.*?)(</a>)', re.S)
+GUIDE_REF_RE = re.compile(r'<reference\b' + TAG + r'>')
+META_RE = re.compile(r'<meta\b' + TAG + r'>')
+MANIFEST_ITEM_RE = re.compile(r'<item\b' + TAG + r'>')
+SVG_RE = re.compile(r'<svg\b(' + TAG + r')>(.*?)</svg>', re.S)
 # a guide reference's type, as the landmark it matches
 GUIDE_KINDS = {'cover': 'cover', 'title-page': 'titlepage', 'titlepage': 'titlepage', 'toc': 'toc'}
 
@@ -374,14 +375,20 @@ def attr(tag, name):
 
 
 def esc_attr(s):
-    return s.replace('&', '&amp;').replace('<', '&lt;').replace('"', '&quot;')
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
+def same_label(found, wanted):
+    """Whether a label read from the EPUB is the wanted text: entities decoded and whitespace collapsed on both sides."""
+    norm = lambda s: ' '.join(html.unescape(s).split())
+    return norm(found) == norm(wanted)
 
 
 def landmark_labels(opts):
     """The label each landmark and guide entry should carry, by kind; a kind left out keeps pandoc's label."""
     want = {'cover': config_mod.landmark_title(opts, 'cover'), 'titlepage': config_mod.landmark_title(opts, 'titlepage'),
             'toc': config_mod.toc_title(opts)}
-    return {k: v for k, v in want.items() if v}
+    return {k: ' '.join(v.split()) for k, v in want.items() if v.strip()}
 
 
 def landmarks(nav):
@@ -415,11 +422,18 @@ def label_guide(opf, labels):
 
 def cover_image_id(opf):
     """The manifest id of the cover image: the OPF's cover meta, else the item marked cover-image."""
-    m = OPF_COVER_RE.search(opf)
-    if m:
-        return m.group(1)
+    meta = next((t for t in META_RE.findall(opf) if attr(t, 'name') == 'cover' and attr(t, 'content')), None)
+    if meta:
+        return attr(meta, 'content')
     item = next((t for t in MANIFEST_ITEM_RE.findall(opf) if 'cover-image' in (attr(t, 'properties') or '').split()), None)
     return attr(item, 'id') if item else None
+
+
+def set_cover_content(tag, cover_id):
+    """A cover meta tag pointing at the manifest's cover image; any other tag as it was."""
+    if attr(tag, 'name') != 'cover' or attr(tag, 'content') is None:
+        return tag
+    return re.sub(r'(?<=\s)content="[^"]*"', lambda _: f'content="{esc_attr(cover_id)}"', tag)
 
 
 def cover_alt(cfg):
@@ -560,7 +574,7 @@ def postprocess(src_epub, epub, cfg, has_images, epoch, all_alt=True, stem='book
                 elif n.endswith('.ncx'):
                     text = NCX_TITLE_PAGE_RE.sub(lambda m: m.group(1) + title + m.group(2), data.decode('utf-8'))
                     if cover_id:
-                        text = NCX_COVER_RE.sub(lambda m: m.group(1) + cover_id + m.group(3), text)
+                        text = META_RE.sub(lambda m: set_cover_content(m.group(0), cover_id), text)
                     data = text.encode('utf-8')
                 zout.writestr(zinfo(n, zipfile.ZIP_DEFLATED), data)
     tmp.replace(epub)
@@ -582,15 +596,15 @@ def gate_navigation(epub, cfg, log, stem='book'):
         opf = z.read(opf_name).decode('utf-8') if opf_name else ''
         ids = {attr(t, 'id') for t in MANIFEST_ITEM_RE.findall(opf)}
         for kind, _, label in landmarks(nav):
-            if not label:
+            if not html.unescape(label).strip():
                 problems.append(f'{nav_name}: landmark {kind} has no label')
-            elif kind in marks and label != plain_text(esc_attr(marks[kind])):
+            elif kind in marks and not same_label(label, marks[kind]):
                 problems.append(f'{nav_name}: landmark {kind} reads {label!r}, not {marks[kind]!r}')
         for ref in GUIDE_REF_RE.findall(opf):
-            kind, label = GUIDE_KINDS.get(attr(ref, 'type')), (attr(ref, 'title') or '').strip()
-            if not label:
+            kind, label = GUIDE_KINDS.get(attr(ref, 'type')), attr(ref, 'title') or ''
+            if not html.unescape(label).strip():
                 problems.append(f'{opf_name}: guide entry {attr(ref, "type")} has no title')
-            elif kind in marks and label != esc_attr(marks[kind]):
+            elif kind in marks and not same_label(label, marks[kind]):
                 problems.append(f'{opf_name}: guide entry {attr(ref, "type")} reads {label!r}, not {marks[kind]!r}')
         cover_name = cover_page(nav, nav_name, opf, opf_name) if opf_name else None
         if cover_name in names:
@@ -615,8 +629,9 @@ def gate_navigation(epub, cfg, log, stem='book'):
                 ncx = z.read(n).decode('utf-8')
                 labels = NCX_LABEL_RE.findall(ncx)
                 problems += [f'{n}: entry {i} has no label' for i, label in enumerate(labels, 1) if not label.strip()]
-                problems += [f'{n}: the cover meta names {c.group(2)!r}, which is not in the manifest'
-                             for c in NCX_COVER_RE.finditer(ncx) if opf_name and c.group(2) not in ids]
+                problems += [f'{n}: the cover meta names {attr(t, "content")!r}, which is not in the manifest'
+                             for t in META_RE.findall(ncx)
+                             if attr(t, 'name') == 'cover' and opf_name and attr(t, 'content') not in ids]
     for p in problems:
         log(f'  NAVIGATION: {p}')
     log('  navigation: page titles, contents, landmarks and guide labels, and the cover set' if not problems else
@@ -1012,7 +1027,7 @@ def build(cfg, out_dir=None, run_ace=True, keep_work=False, log=print, analysis=
                        if not config_mod.landmark_title(opts, k)]
             if missing:
                 log(f"  warning: no built-in landmark labels for language '{opts.get('_summary_lang')}'; the landmarks "
-                    "and the guide keep pandoc's English labels for the cover and the title page "
+                    "keep pandoc's English labels for the cover and the title page, and the guide for the cover "
                     '(set options.cover_title and options.title_page_title)')
             done('epub')
 

@@ -76,17 +76,17 @@ def toc_title(opts):
     return opts.get('toc_title') or DEFAULT_TOC_TITLE.get(opts.get('_summary_lang', 'en'), '')
 
 
-# the cover's and the title page's labels in the landmarks and the guide; other languages set options.cover_title
-# and options.title_page_title
+# the cover's and the title page's labels in the landmarks, and in the guide's entries for them (pandoc's guide has
+# a cover entry and no title-page entry); other languages set options.cover_title and options.title_page_title
 DEFAULT_LANDMARK_TITLES = {'en': {'cover': 'Cover', 'titlepage': 'Title Page'},
                            'ru': {'cover': 'Обложка', 'titlepage': 'Титульный лист'}}
 
 
 def landmark_title(opts, kind):
     """The label of the cover ('cover') or the title page ('titlepage') in the landmarks and the guide: the option,
-    else the built-in one for the book's language, else ''."""
+    trimmed, else the built-in one for the book's language, else ''."""
     key = {'cover': 'cover_title', 'titlepage': 'title_page_title'}[kind]
-    return opts.get(key) or DEFAULT_LANDMARK_TITLES.get(opts.get('_summary_lang', 'en'), {}).get(kind, '')
+    return (opts.get(key) or '').strip() or DEFAULT_LANDMARK_TITLES.get(opts.get('_summary_lang', 'en'), {}).get(kind, '')
 
 
 FILE_KEYS = {'file', 'role', 'title', 'drop_sections', 'mermaid_alt', 'key'}
