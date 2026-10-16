@@ -34,7 +34,7 @@ EPUB remains the default. PDF export is available in 0.2.0 with the `pdf` extra.
 
 Both output formats check source links, images, charts and mdBook includes.
 
-- `mdbindery build` adds EPUBCheck, Ace and per-chapter word counts. Reports go to `reports/`. Missing Ace after an install with `--no-node` produces a warning.
+- `mdbindery build` adds a navigation check, EPUBCheck, Ace and per-chapter word counts. Reports go to `reports/`. Missing Ace after an install with `--no-node` produces a warning.
 - `mdbindery build --format pdf` checks loaded resources and internal links, parses the PDF and compares extracted text with generated HTML. Reports go to `reports/pdf/`. EPUBCheck and Ace do not run for PDF.
 
 A failed gate returns exit status 1 and keeps the generated book for inspection. PDF renderer errors return exit status 2 and preserve an older PDF. Inspect PDF layout before sharing; text checks cannot prove correct pagination or absence of clipping. PDF/A and PDF/UA conformance are not claimed.

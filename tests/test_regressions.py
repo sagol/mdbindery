@@ -621,3 +621,15 @@ def test_every_build_gate_is_documented_where_builds_are_read():
         missing = [g for g in sorted(gates - {'pdf'}) if not re.search(rf'^\s*\| `{g}` \|', text, re.M)]
         assert not missing, f'{rel} has no gate row for {missing}'
     assert 'gates.pdf' in tables['skills/mdbindery/SKILL.md']
+    # the lists that summarize the gates elsewhere, where a reader or an agent first meets them
+    epub = sorted(gates - {'pdf'})
+    names = {'epubcheck': 'EPUBCheck', 'ace': 'Ace', 'wordcount': 'word count'}
+    description = re.search(r'^description: (.*)$', tables['skills/mdbindery/SKILL.md'], re.M).group(1)
+    listed = re.search(r'the gates \(([^)]*)\)', description).group(1)
+    assert all(names.get(g, g) in listed for g in epub), listed
+    site = root / 'site'
+    if site.is_dir():
+        cards = re.findall(r'class="gate-name">(\w+) ·', (site / 'index.html').read_text(encoding='utf-8'))
+        assert set(gates) <= set(cards), cards
+        numbered = re.findall(r'^\d+\. \*\*`(\w+)`\*\*', (site / 'llms-full.txt').read_text(encoding='utf-8'), re.M)
+        assert set(epub) <= set(numbered), numbered

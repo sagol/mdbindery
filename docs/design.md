@@ -52,7 +52,7 @@ pandoc -f json -t epub3 book.json (SOURCE_DATE_EPOCH set)  -> work/book.epub
   with work/book.css and work/cover.jpg
 postprocess(): accessibility metadata, numbered endnotes,
   normalized zip written to <slug>.epub.part, then renamed -> <out>/<slug>.epub
-gates: charts, links, images, includes, EPUBCheck, Ace, word count
+gates: charts, links, images, includes, navigation, EPUBCheck, Ace, word count
                                                            -> <out>/reports/
 ```
 
