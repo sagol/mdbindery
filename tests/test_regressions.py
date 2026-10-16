@@ -631,5 +631,11 @@ def test_every_build_gate_is_documented_where_builds_are_read():
     if site.is_dir():
         cards = re.findall(r'class="gate-name">(\w+) ·', (site / 'index.html').read_text(encoding='utf-8'))
         assert set(gates) <= set(cards), cards
-        numbered = re.findall(r'^\d+\. \*\*`(\w+)`\*\*', (site / 'llms-full.txt').read_text(encoding='utf-8'), re.M)
+        llms = (site / 'llms-full.txt').read_text(encoding='utf-8')
+        numbered = re.findall(r'^\d+\. \*\*`(\w+)`\*\*', llms, re.M)
         assert set(epub) <= set(numbered), numbered
+        intro = next(line for line in llms.splitlines() if 'share source gates' in line)
+        assert set(epub) <= set(re.findall(r'`(\w+)`', intro)), intro
+    design = (root / 'docs/design.md').read_text(encoding='utf-8')
+    summary = next(line for line in design.splitlines() if line.startswith('mdbindery is a small Python package'))
+    assert all(names.get(g, g).lower() in summary.lower() for g in sorted(set(epub) - {'links', 'images', 'charts', 'includes'})), summary

@@ -2,7 +2,7 @@
 
 This page describes how mdbindery works inside, for people who change its code. User-facing behavior is in [building.md](building.md), [pdf.md](pdf.md), [checking.md](checking.md), [configuration.md](configuration.md), and [installation.md](installation.md); the book rules are in [book-structure.md](book-structure.md).
 
-mdbindery is a small Python package (dependencies: PyYAML and Pillow; Python 3.9 or newer) that orchestrates external programs. pandoc parses Markdown and writes EPUB or HTML. Shared Lua filters prepare chapters and links. EPUB uses EPUBCheck, DAISY Ace and per-chapter word counts. Optional PDF export prints HTML with the installed Chromium and validates extracted text with pypdf.
+mdbindery is a small Python package (dependencies: PyYAML and Pillow; Python 3.9 or newer) that orchestrates external programs. pandoc parses Markdown and writes EPUB or HTML. Shared Lua filters prepare chapters and links. EPUB uses a navigation check, EPUBCheck, DAISY Ace and per-chapter word counts. Optional PDF export prints HTML with the installed Chromium and validates extracted text with pypdf.
 
 ## Module map
 

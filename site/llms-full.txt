@@ -13,7 +13,7 @@
 
 ## 1. Purpose and capabilities
 
-`mdbindery` converts a local folder or GitHub repository of Markdown chapters (or an `mdBook` project with `book.toml` and `SUMMARY.md`) into EPUB 3 (default) or PDF (`--format pdf`). Both share source gates (`links`, `images`, `charts`, `includes`). EPUB adds `epubcheck`, `ace` and `wordcount`; PDF adds rendered-resource, internal-link and extracted-text checks. Each format keeps separate reports.
+`mdbindery` converts a local folder or GitHub repository of Markdown chapters (or an `mdBook` project with `book.toml` and `SUMMARY.md`) into EPUB 3 (default) or PDF (`--format pdf`). Both share source gates (`links`, `images`, `charts`, `includes`). EPUB adds `navigation`, `epubcheck`, `ace` and `wordcount`; PDF adds rendered-resource, internal-link and extracted-text checks. Each format keeps separate reports.
 
 Conversions:
 

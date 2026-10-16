@@ -4,7 +4,7 @@
 
 Build EPUB 3 ebooks or paginated PDFs from a folder or GitHub repository of Markdown chapters.
 
-mdbindery is built for books written the GitHub way: one Markdown file per chapter, relative links between files, images in the repository, citations as `[1]` with reference definitions. The source stays readable on GitHub. Both formats share chapter preparation and source checks. EPUB builds run EPUBCheck and DAISY Ace; PDF builds check rendered resources, links and extracted text.
+mdbindery is built for books written the GitHub way: one Markdown file per chapter, relative links between files, images in the repository, citations as `[1]` with reference definitions. The source stays readable on GitHub. Both formats share chapter preparation and source checks. EPUB builds check page titles and contents labels, run EPUBCheck and DAISY Ace, and compare word counts; PDF builds check rendered resources, links and extracted text.
 
 ```
 mdbindery check https://github.com/OWNER/REPO     # what to fix, file by file and line by line
