@@ -2,7 +2,7 @@
 
 ## 0.2.1 (2026-10-17)
 
-- `install.sh --extras pdf` installs PDF export's Python extra with mdbindery, from GitHub or with `--local`; other extras work the same way.
+- `install.sh --extras pdf` installs PDF export's Python extra with mdbindery, from GitHub or with `--local`; other extras work the same way. A `--local` path is passed to uv as a fully encoded file URL, so spaces, `%`, `#`, `?` and non-ASCII names work.
 - On a minimal Linux without `unzip`, `install-tools` now installs the headless Chrome that Puppeteer 25 and later need: it installs `yauzl` with the other npm tools, removes a browser folder an interrupted download left incomplete, and names the cause when the Node.js tools fail.
 - The installation guide lists the libraries a clean Ubuntu 24.04 server lacks for headless Chrome and gives the AppArmor profile that lets Chrome's sandbox start on Ubuntu 23.10 and later, so charts and PDF export run with the sandbox on. It also explains calling `~/.local/bin/mdbindery` by its full path in a shell that reads no profile.
 - The README and the agent resources say which skills folder each agent host reads, and what to do when mdbindery's link comes with links to other book tools, some private.

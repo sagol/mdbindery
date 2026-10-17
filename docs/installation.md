@@ -313,7 +313,7 @@ On Ubuntu 24.04 several of these were renamed with a `t64` suffix, and `libasoun
 sudo apt install libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 libgbm1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2
 ```
 
-Smaller images may also lack `libnss3`, `libcups2t64`, `libxkbcommon0`, `libpango-1.0-0`, `libcairo2`, and `libdrm2`. Other distributions ship the same libraries under similar names.
+Smaller images may also lack `libnss3`, `libxkbcommon0`, and `libdrm2`. Other distributions ship the same libraries under similar names.
 
 Puppeteer 25 and later unzip the browser they download with an `unzip` command or with the `yauzl` package; `install-tools` installs `yauzl` with the other npm tools, so no `unzip` is needed. A download that stopped midway leaves a folder Puppeteer refuses to reuse; `install-tools` removes such a folder before it installs that build again.
 
@@ -326,7 +326,7 @@ sudo tee /etc/apparmor.d/mdbindery-chrome >/dev/null <<PROFILE
 abi <abi/4.0>,
 include <tunables/global>
 
-profile mdbindery-chrome ${MDBINDERY_HOME:-$HOME/.local/share/mdbindery}/tools/puppeteer/chrome-headless-shell/*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+profile mdbindery-chrome "${MDBINDERY_HOME:-$HOME/.local/share/mdbindery}/tools/puppeteer/chrome-headless-shell/*/chrome-headless-shell-linux64/chrome-headless-shell" flags=(unconfined) {
   userns,
   include if exists <local/mdbindery-chrome>
 }

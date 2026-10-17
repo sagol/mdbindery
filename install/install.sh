@@ -66,6 +66,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 say() { printf '%s\n' "$*"; }
+urlencode_path() {   # every byte of a path percent-encoded except unreserved characters and slashes, for a file:// URL
+  local LC_ALL=C s="$1" out='' c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9/._~-]) out+="$c" ;;
+      *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 if [[ -n "$EXTRAS" && ! "$EXTRAS" =~ ^[a-z][a-z0-9_-]*(,[a-z][a-z0-9_-]*)*$ ]]; then
@@ -128,7 +139,7 @@ fi
 NAME="mdbindery${EXTRAS:+[$EXTRAS]}"
 if [[ -n "$LOCAL" ]]; then
   SOURCE="$(cd "$LOCAL" && pwd)"
-  SPEC="$NAME @ file://${SOURCE// /%20}"
+  SPEC="$NAME @ file://$(urlencode_path "$SOURCE")"
 else
   SPEC="$NAME @ $REPO/archive/$REF.zip"
 fi

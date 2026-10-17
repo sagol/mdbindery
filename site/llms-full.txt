@@ -27,6 +27,10 @@ Conversions:
 
 ---
 
+## Setting up mdbindery as part of a larger book toolset
+
+If an author gave you mdbindery's link together with links to other book tools, and some of those repositories are private, mdbindery is one part of a larger toolset. Ask the author for GitHub access to the private repositories (`gh auth login`, or a read-only token), then follow the setup guide in that toolset's main repository; it installs mdbindery with this installer at a pinned release.
+
 ## 2. Installation and companion tools
 
 ### Standalone installers (no preinstalled Python, Java, or Node.js)
