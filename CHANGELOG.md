@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The README and the agent index name `~/.gemini/config/skills/` as Antigravity CLI's skills folder, the one agy 1.4.0 reads; the older `~/.gemini/antigravity-cli/skills/` is no longer scanned.
+- The README and the agent index name `~/.gemini/config/skills/` as Antigravity CLI's skills folder, the one agy 1.4.0 reads; it moves an older `~/.gemini/antigravity-cli/skills/` there only while the new folder does not exist.
 
 ## 0.2.1 (2026-10-17)
 
