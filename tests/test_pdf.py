@@ -669,6 +669,8 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: hidden; }',   # its own box of no
      ['Map of Mars today', 'Second']),   # size clips it all
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; height: 0; overflow: clip; }', ['Map of Mars today', 'Second']),
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; box-sizing: border-box; width: 2px; border-left: 1px solid; '
+     'border-right: 1px solid; overflow: hidden; }', ['Map of Mars today', 'Second']),   # a border box with no padding box left
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
@@ -701,6 +703,10 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
      '::after moved out of view'),   # its own padding, clipped by its element
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 12px; overflow: hidden; }',
      '::before clipping its own overflow'),   # some of it may show: which part cannot be measured
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; padding-right: 100px; overflow: hidden; '
+     'white-space: nowrap; }', '::before clipping its own overflow'),   # no content width, but its padding box shows the text
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: clip; overflow-clip-margin: 100px; }',
+     '::before clipping its own overflow'),   # a clip margin gives it room too
 ])   # individual transform properties move it too; even the identity puts its text after the contents in the page text
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -716,6 +722,8 @@ def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, bro
     'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow: hidden; }',   # its second line cut away
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: clip; overflow-clip-margin: 2px; white-space: nowrap; }',
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; overflow-clip-margin: 150px; white-space: nowrap; }',
+    'nav#TOC li:first-child a { display: inline-block; width: 24px; border-left: 40px solid; overflow: hidden; white-space: nowrap; '
+    'transform: scale(0.5); transform-origin: 0 0; }',   # scaled, and still too narrow
 ])   # a clip margin moves only an overflow: clip edge
 def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -728,6 +736,10 @@ def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, cs
                                  'line-height: 0.8; }',   # the line box trims only the tops and bottoms of the letters
                                  'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: clip; overflow-clip-margin: 150px; '
                                  'white-space: nowrap; }',   # the clip edge is 150px out: all of it shows
+                                 'nav#TOC a { display: inline-block; width: 200px; border-left: 40px solid; overflow: hidden; '
+                                 'transform: scale(0.5); transform-origin: 0 0; white-space: nowrap; }',   # a scaled border
+                                 'nav#TOC li { transform: scale(0.5); transform-origin: 0 0; } nav#TOC a { display: inline-block; '
+                                 'width: 200px; border-left: 40px solid; overflow: hidden; white-space: nowrap; }',   # scaled above
                                  'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow-x: clip; }'])   # clipped across only:
                                  # the second line shows below
 def test_pdf_contents_entry_in_a_tight_clipping_line_is_listed(tmp_path, browser, css):

@@ -137,9 +137,15 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               !== 'none' || collapsed(style) || masked(el)   // the pseudo-element's own drawing: no size, its own clip or mask,
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // a collapsing transform, a filter that clears it
           if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['inline', 'contents'].includes(style.display)) {
-            if (parseFloat(style.width) === 0 || parseFloat(style.height) === 0) return;   // its own box of no size hides it all
-            unresolved.push(`${which} clipping its own overflow`);   // a box that may cut it: how much of its text shows cannot
-            return;   // be told here, since a pseudo-element's text has no box of its own to measure
+            const n = k => parseFloat(style[k]) || 0, border = style.boxSizing === 'border-box';   // the edge it clips at is
+            const across = border ? n('width') - n('borderLeftWidth') - n('borderRightWidth')   // its padding box, grown by
+              : n('width') + n('paddingLeft') + n('paddingRight');   // overflow-clip-margin where both axes clip
+            const down = border ? n('height') - n('borderTopWidth') - n('borderBottomWidth') : n('height') + n('paddingTop') + n('paddingBottom');
+            const margin = style.overflowX === 'clip' && style.overflowY === 'clip'
+              ? parseFloat((style.overflowClipMargin || '').split(/\s+/).find(t => /^-?[\d.]+px$/.test(t))) || 0 : 0;
+            if ((style.overflowX !== 'visible' && across + 2 * margin <= 0) || (style.overflowY !== 'visible' && down + 2 * margin <= 0)) return;
+            unresolved.push(`${which} clipping its own overflow`);   // a box with room: how much of its text shows cannot be
+            return;   // told here, since a pseudo-element's text has no box of its own to measure
           }
           let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
           while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
@@ -245,16 +251,18 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return false;
         };
         const clipEdge = (e, style) => {   // where e clips its overflow: its padding box, or with overflow: clip on both axes
-          const r = e.getBoundingClientRect(), n = k => parseFloat(style[k]) || 0;   // the box overflow-clip-margin names (padding
-          let edge = {left: r.left + n('borderLeftWidth'), top: r.top + n('borderTopWidth'),   // by default), grown by its length
-                      right: r.right - n('borderRightWidth'), bottom: r.bottom - n('borderBottomWidth')};
-          if (style.overflowX === 'clip' && style.overflowY === 'clip') {
+          const r = e.getBoundingClientRect();   // the box overflow-clip-margin names (padding by default), grown by its length.
+          const sx = e.offsetWidth ? r.width / e.offsetWidth : 1, sy = e.offsetHeight ? r.height / e.offsetHeight : 1;   // CSS
+          const x = k => (parseFloat(style[k]) || 0) * sx, y = k => (parseFloat(style[k]) || 0) * sy;   // lengths are in its own
+          let edge = {left: r.left + x('borderLeftWidth'), top: r.top + y('borderTopWidth'),   // units: a transform on it or
+                      right: r.right - x('borderRightWidth'), bottom: r.bottom - y('borderBottomWidth')};   // above scales them
+          if (style.overflowX === 'clip' && style.overflowY === 'clip') {   // as it scales its measured box
             const parts = (style.overflowClipMargin || '').trim().split(/\s+/);
             const kind = parts.find(t => t.endsWith('-box')), grow = parseFloat(parts.find(t => /^-?[\d.]+px$/.test(t))) || 0;
             if (kind === 'border-box') edge = {left: r.left, top: r.top, right: r.right, bottom: r.bottom};
-            if (kind === 'content-box') edge = {left: edge.left + n('paddingLeft'), top: edge.top + n('paddingTop'),
-                                                right: edge.right - n('paddingRight'), bottom: edge.bottom - n('paddingBottom')};
-            edge = {left: edge.left - grow, top: edge.top - grow, right: edge.right + grow, bottom: edge.bottom + grow};
+            if (kind === 'content-box') edge = {left: edge.left + x('paddingLeft'), top: edge.top + y('paddingTop'),
+                                                right: edge.right - x('paddingRight'), bottom: edge.bottom - y('paddingBottom')};
+            edge = {left: edge.left - grow * sx, top: edge.top - grow * sy, right: edge.right + grow * sx, bottom: edge.bottom + grow * sy};
           }
           return edge;
         };
