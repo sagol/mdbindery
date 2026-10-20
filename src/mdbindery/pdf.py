@@ -226,14 +226,15 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         try:
             from pypdf import PdfReader, __version__ as pypdf_version
             rows, _ = pdfnav.project(PdfReader(temporary, strict=True), entries, has_nav, rights)
-            pdfnav.finalize(temporary, final, rows, meta)
+            pdfnav.finalize(temporary, final, rows, meta, aliases={e['target']: e['anchor'] for e in entries})
         except BuildError:
             raise
         except Exception as e:   # a parser or writer failure: the previous PDF stays
             raise BuildError(f'PDF navigation and metadata could not be written: {e}') from e
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights,
-                                                       printed=[e['text'] for e in entries])
+                                                       printed=[e['text'] for e in entries],
+                                                       links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:
         temporary.unlink(missing_ok=True)

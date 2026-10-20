@@ -1,5 +1,6 @@
 """PDF integration and EPUB compatibility checks. Never build source fixtures in place."""
 import json
+import urllib.parse
 import os
 from pathlib import Path
 
@@ -395,7 +396,13 @@ def test_pdf_display_contents_heading_gets_its_bookmark(tmp_path, browser):
     summary = build(nav_book(tmp_path, CHAPTERS, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
                     output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']
-    assert 'Вторая глава' in [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
+    reader = PdfReader(summary['pdf'])
+    found = outline_of(reader)
+    assert 'Вторая глава' in [t for t, _, _ in found]
+    named = {urllib.parse.unquote(str(k)[1:]): v for k, v in reader.named_destinations.items()}
+    contents = next(i for i, p in enumerate(reader.pages) if 'Первая глава' in (p.extract_text() or ''))
+    targets = [urllib.parse.unquote(str(a.get_object()['/Dest'])[1:]) for a in reader.pages[contents]['/Annots']]
+    assert [reader.get_destination_page_number(named[t]) for t in targets] == [page for _, _, page in found]   # every printed link opens its bookmark's page
 
 
 @needs_pandoc

@@ -218,8 +218,22 @@ def info(meta):
     return out
 
 
-def finalize(source, target, rows, meta):
-    """Clone Chrome's PDF whole, replace its outline with the projected one, write Info and XMP, and save to target."""
+def _link_names(page):
+    """The named destinations a page's link annotations go to, as (raw name object, decoded name)."""
+    from pypdf.generic import NameObject
+    out = []
+    for annot in page.get('/Annots') or []:
+        annot = annot.get_object()
+        dest = annot.get('/Dest')
+        if annot.get('/Subtype') == '/Link' and isinstance(dest, (NameObject, str)):
+            out.append((dest, urllib.parse.unquote(str(dest)[1:] if isinstance(dest, NameObject) else str(dest))))
+    return out
+
+
+def finalize(source, target, rows, meta, aliases=None):
+    """Clone Chrome's PDF whole, replace its outline with the projected one, write Info and XMP, and save to target.
+    aliases maps a contents target id to its anchor: a printed contents link whose target got no destination from Chrome
+    (a heading with no box of its own) is given its anchor's, under the name the link already uses."""
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import DecodedStreamObject, Fit, NameObject
     reader = PdfReader(source, strict=True)
@@ -227,6 +241,13 @@ def finalize(source, target, rows, meta):
     root = writer._root_object
     if '/Outlines' in root:
         del root['/Outlines']
+    dests = root.get('/Dests')
+    dests = dests.get_object() if dests is not None else None
+    for page in writer.pages if aliases and dests is not None else ():
+        for raw, name in _link_names(page):
+            anchor = NameObject('/' + aliases[name]) if name in aliases else None
+            if isinstance(raw, NameObject) and raw not in dests and anchor in dests:
+                dests[raw] = dests[anchor]
     parents = []
     for label, depth, page, typ, args in rows:
         while parents and parents[-1][0] >= depth:
@@ -258,7 +279,7 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def gates(path, rows, meta, toc_title, has_nav, rights, printed=None):
+def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
     entry's printed text, which the page check looks for (a bookmark label may also name an image by its alt text)."""
     from pypdf import PdfReader
@@ -278,8 +299,14 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None):
         at = here.find(want)
         if not 0 <= at < len(texts[page]):
             problems.append(f'«{label}» does not begin on its destination page {page + 1}')
-    outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
     named = named_destinations(reader)
+    for index, page in enumerate(reader.pages):   # every printed contents link goes where its bookmark goes
+        for raw, name in _link_names(page) if links else ():
+            if name in links:
+                dest = named.get(name)
+                if dest is None or reader.get_destination_page_number(dest) != links[name]:
+                    problems.append(f'the contents link to {name!r} on page {index + 1} does not open its heading\'s page')
+    outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
     front, not_applicable = [], []
     title_page = reader.get_destination_page_number(named[TITLE]) if TITLE in named else None
     if title_page is None or normalized(meta['title']) not in texts[title_page]:
