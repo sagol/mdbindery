@@ -110,9 +110,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
               !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)   // or a mask on it, a filter
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // of its own that zeroes its opacity
-          if (['absolute', 'fixed'].includes(style.position)) {   // or above it, a collapsing transform: no words. Placed apart
-            unresolved.push(`${which} with position: ${style.position}`);   // from the flow, where it lands cannot be told here
-            return;
+          if (el.getClientRects().length && !onPage(el.getBoundingClientRect(), el.parentElement)) return;   // its element off the
+          const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // page: neither
+          if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset || style.transform !== 'none') {
+            unresolved.push(`${which} moved by position: ${style.position} or a transform`);   // moved apart from the flow,
+            return;   // where it lands cannot be told here (a pseudo-element has no box to measure)
           }
           let i = 0, printed = '';
           while (i < value.length) {

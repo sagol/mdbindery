@@ -496,7 +496,9 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
 @pytest.mark.parametrize('css, named', [
     ('nav#TOC li { counter-increment: entry; } nav#TOC a::before { content: counter(entry) ". "; }', 'counter(entry)'),
     ('nav#TOC a::before { content: open-quote; } nav#TOC a::after { content: close-quote; }', 'open-quote'),
-    ('nav#TOC a::before { content: "Ghostword"; position: absolute; left: -9999px; }', '::before with position: absolute'),
+    ('nav#TOC a::before { content: "Ghostword"; position: absolute; left: -9999px; }', '::before moved by position: absolute'),
+    ('nav#TOC a::before { content: "Ghostword"; position: relative; left: 9999px; }', '::before moved by position: relative'),
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(9999px); }', '::before moved by'),
 ])
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
