@@ -489,6 +489,15 @@ def test_pdf_a_title_print_css_generates_is_on_the_title_page(tmp_path, browser)
 
 
 @needs_pandoc
+@pytest.mark.parametrize('ink', ['-webkit-text-stroke: 1px black;', 'text-shadow: 0 0 1px black;'])
+def test_pdf_a_title_drawn_as_an_outline_or_a_shadow_is_its_own(tmp_path, browser, ink):
+    css = f'header#title-block-header .title {{ -webkit-text-fill-color: transparent; {ink} }}'
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'] and summary['gates']['pdf']['front_matter']['result'] == 'pass', summary['gates']['pdf']
+
+
+@needs_pandoc
 def test_pdf_the_title_must_be_drawn_by_the_title_itself(tmp_path, browser):
     css = ('header#title-block-header .title { font-size: 0; } '   # the title element draws other words; the title's own
            'header#title-block-header .title::before { content: "Unrelated"; font-size: 16px; }')   # are in the rights line
@@ -496,6 +505,20 @@ def test_pdf_the_title_must_be_drawn_by_the_title_itself(tmp_path, browser):
     summary = build(nav_book(tmp_path, files, css=css, rights='Навигация & <тест> © 2026'), out_dir=tmp_path / 'out',
                     output_format='pdf', log=quiet)
     assert not summary['ok'] and 'the title is not on the title page' in summary['gates']['pdf']['front_matter']['problems']
+
+
+@needs_pandoc
+@pytest.mark.parametrize('lang, css, label', [
+    ('en-US', 'nav#TOC a { text-transform: capitalize; }', 'North-East Wind.Of Mars'),   # words start after punctuation too
+    ('x-private', 'nav#TOC a { text-transform: uppercase; }', 'NORTH-EAST WIND.OF MARS'),   # a tag casing rejects
+])
+def test_pdf_bookmark_case_follows_what_chrome_prints(tmp_path, browser, lang, css, label):
+    files = {'01.md': '# north-east wind.of mars\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang=lang, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    reader = PdfReader(summary['pdf'])
+    assert label in ''.join(p.extract_text() or '' for p in reader.pages)   # what Chrome printed in the contents
+    assert [t for t, _, _ in outline_of(reader)][0] == label
 
 
 @needs_pandoc

@@ -91,18 +91,18 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
         // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
         const unresolved = [];   // ::before and ::after included
-        const cased = (piece, style, el) => {   // as text-transform prints it, in the element's language
-          const t = style ? style.textTransform : 'none', lang = ((el && el.closest('[lang]')) || document.documentElement).lang || undefined;
-          if (t === 'uppercase') return piece.toLocaleUpperCase(lang);
-          if (t === 'lowercase') return piece.toLocaleLowerCase(lang);
-          if (t !== 'capitalize') return piece;
-          let start = !label || /\s$/.test(label);   // the first letter or digit of each word; a letter is capitalized
-          return Array.from(piece).map(c => {
-            if (/\s/.test(c)) { start = true; return c; }
-            if (!start || !/[\p{L}\p{N}]/u.test(c)) return c;
-            start = false;
-            return /\p{L}/u.test(c) ? c.toLocaleUpperCase(lang) : c;
-          }).join('');
+        const cased = (piece, style, el) => {   // as text-transform prints it: Chrome's own result, read from a probe in the
+          if (!style || ['none', 'math-auto'].includes(style.textTransform) || !el) return piece;   // element (its language and
+          // context), forced to show the transform; math-auto only italicizes a math letter, as a style, so it stays plain
+          const lead = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}]$/u.test(label) ? Array.from(label).pop() : '';
+          const probe = document.createElement('span');   // show the transform, keep spaces and start its own line context; it
+          probe.textContent = lead + piece;   // leaves before printing, and the second print would catch anything it changed.
+          for (const [k, v] of [['text-transform', style.textTransform], ['display', 'inline-block'], ['white-space', 'pre']])
+            probe.style.setProperty(k, v, 'important');   // A word the piece before began goes on: capitalize leaves it
+          el.appendChild(probe);
+          const out = probe.innerText;
+          probe.remove();
+          return lead ? Array.from(out).slice(1).join('') : out;
         };
         const add = (piece, alt, outline = false, style = null, el = null) => {   // runs: its printed text in order, each piece
           piece = cased(piece, style, el);   // with whether it is drawn only as an outline (Chrome writes such a piece twice)
@@ -268,8 +268,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       const element = selector => {   // a front-matter element as printed: whether anything of it draws, and the words it
         const el = document.querySelector(selector);   // draws, generated text included
         if (!el) return null;
-        const seen = scan(el);
-        return {shows: seen.shows, words: seen.words};
+        const seen = scan(el);   // its words here include text drawn only as an outline or a shadow, which is visible
+        return {shows: seen.shows, words: seen.runs.map(r => r[0]).join('')};   // (an image's alt text is not)
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};
