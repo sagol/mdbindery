@@ -669,6 +669,8 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
+    ('nav#TOC li:first-child a { display: inline-block; width: 400px; overflow: hidden; white-space: nowrap; }',   # a clip that
+     ['Map of Mars today', 'Second']),   # cuts nothing
     ('nav#TOC a { display: block; } nav#TOC a::after { content: " suffix"; margin-left: 4px; }',   # a block's suffix starts after
      ['Map of Mars today suffix', 'Second suffix']),   # its last text, not at the block's right edge
     ('nav#TOC a { text-transform: uppercase; }', ['MAP OF MARS TODAY', 'SECOND']),   # the case the contents print
@@ -699,6 +701,29 @@ def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, bro
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match=re.escape(f'«First» shows text that print CSS generates with {named}')):
         build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', [
+    'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; white-space: nowrap; vertical-align: top; }',
+    'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
+    'nav#TOC li:first-child { width: 12px; overflow: hidden; white-space: nowrap; }',   # cut by a parent
+    'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow: hidden; }',   # its second line cut away
+])
+def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, css):
+    files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    with pytest.raises(BuildError, match='«First words here» is only partly visible in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC li { overflow: hidden; line-height: 1; }', 'nav#TOC a { display: inline-block; overflow: hidden; '
+                                 'line-height: 0.8; }'])   # the line box trims only the tops and bottoms of the letters
+def test_pdf_contents_entry_in_a_tight_clipping_line_is_listed(tmp_path, browser, css):
+    files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['First words here', 'Second']
 
 
 @needs_pandoc

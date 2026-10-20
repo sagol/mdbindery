@@ -88,8 +88,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
       };
       const scan = root => {   // what root prints: its label (an image by its alt text), its words (no alt
-        let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
-        // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
+        let label = '', words = '', shows = false, outlined = false, cut = false, runs = [];   // text), whether anything shows,
+        // whether text is drawn
+        // only as an outline or a shadow (its extracted text cannot be told), whether part of its text is cut off, and
+        // generated text no page can repeat;
         const unresolved = [];   // ::before and ::after included
         const cased = (piece, style, el) => {   // as text-transform prints it: Chrome's own result, read from a probe in the
           if (!style || ['none', 'math-auto'].includes(style.textTransform) || !el) return piece;   // element (its language and
@@ -206,8 +208,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               }
               const range = document.createRange(), style = getComputedStyle(n.parentElement);
               range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
-              if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
+              const lines = Array.from(range.getClientRects()).filter(q => q.width > 0 && q.height > 0);
+              if (lines.some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
+                cut = cut || lines.some(box => {   // letters cut off at a side, or a line mostly cut away: what of it prints
+                  const c = clipped(box, n.parentElement);   // cannot be told from the page text, which may keep the hidden
+                  const h = (box.bottom - box.top) / 2;   // glyphs; a line box that trims only the top or bottom of its letters
+                  return c.left - box.left > 0.5 || box.right - c.right > 0.5 || c.top - box.top > h || box.bottom - c.bottom > h;
+                });   // (overflow: hidden with a small line-height) still shows every one
                 outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // only a stroke or a shadow: Chrome may write its
                 add(n.data, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0, style, n.parentElement);
                 shows = true;
@@ -231,8 +239,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           return false;
         };
-        const onPage = (box, el) => {   // what is left of box after every ancestor that clips its overflow (one with a box that
-          for (let e = el; e; e = e.parentElement) {   // is not inline) has an area and lies within the page's printable width
+        const clipped = (box, el) => {   // what is left of box after every ancestor that clips its overflow (one with a box
+          for (let e = el; e; e = e.parentElement) {   // that is not inline) and the page's printable width
             const style = getComputedStyle(e);
             if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['contents', 'inline'].includes(style.display)) {
               const outer = e.getBoundingClientRect();
@@ -240,8 +248,12 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                      right: Math.min(box.right, outer.right), bottom: Math.min(box.bottom, outer.bottom)};
             }
           }
-          return box.right > box.left && box.bottom > box.top && box.right > 0 && box.bottom > 0
-            && box.left < document.documentElement.clientWidth;
+          return {left: Math.max(box.left, 0), top: box.top, right: Math.min(box.right, document.documentElement.clientWidth),
+                  bottom: box.bottom};
+        };
+        const onPage = (box, el) => {   // something of box is left, on the page
+          const c = clipped(box, el);
+          return c.right > c.left && c.bottom > c.top && c.bottom > 0;
         };
         const filtered = el => {   // a filter on it or above that clears it (opacity(0)), or an SVG filter whose result cannot be
           for (let e = el; e; e = e.parentElement)   // told; grayscale, blur and the like still print it
@@ -287,7 +299,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
         return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved, outlined,
-                runs};
+                cut, runs};
       };
       const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
         const li = a.closest('li');   // ::marker string, nothing for a bullet or a marker Chrome does not write; null where it
@@ -339,7 +351,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const entry = scan(a), heading = target ? scan(target) : {words: '', shows: false};   // what the heading draws, its
         return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words,   // ::before and ::after included
           text: heading.words, name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows,
-          unresolved: entry.unresolved, marker: marker(a), outlined: entry.outlined, runs: entry.outlined ? entry.runs : null,
+          unresolved: entry.unresolved, cut: entry.cut, marker: marker(a), outlined: entry.outlined, runs: entry.outlined ? entry.runs : null,
           printed: !!anchor && anchor.checkVisibility() && heading.shows,   // laid out, and something in it drawn: a visible part
           // of a hidden heading, or text it generates, prints, and Chrome writes the heading's destination
           placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};

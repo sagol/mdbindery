@@ -129,6 +129,10 @@ def join_entries(entries, page):
         if seen.get('unresolved'):
             raise BuildError(f"contents entry «{named}» shows text that print CSS generates with {', '.join(seen['unresolved'])}, which "
                              'the bookmark cannot repeat; write that text into the heading, or generate only strings and attr() there')
+        if seen.get('cut'):
+            raise BuildError(f"contents entry «{named}» is only partly visible in the printed contents: an element that hides its "
+                             'overflow, or the page edge, cuts off part of its text, so what the bookmark should hold cannot be told; '
+                             'let the entry show in full (no fixed width or height with overflow: hidden or text-overflow on it)')
         if not seen.get('printed'):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
