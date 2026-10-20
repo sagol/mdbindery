@@ -43,12 +43,12 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
     const documentState = await page.evaluate(locators => {
       const source = document.body.cloneNode(true);
       source.querySelectorAll('annotation, script, style').forEach(n => n.remove());
-      const hide = id => {   // Chrome writes a destination only for a link target, a hidden link's included; these go after
-        const link = document.createElement('a');   // all the book's content, never among an author's elements
-        link.className = 'mdb-locator';
+      const hide = id => {   // Chrome writes a destination only for a link target, and finds the links in the whole document:
+        const link = document.createElement('a');   // these go in the head, which is never rendered or styled, so no
+        link.className = 'mdb-locator';             // selector of the book's CSS matches anything differently
         link.setAttribute('href', '#' + id);
         link.style.display = 'none';
-        document.body.append(link);
+        document.head.append(link);
       };
       const flat = el => {   // a transform on el or above it leaves what it draws no area (scale(0), or scaleX(0) rotated)
         for (let e = el; e; e = e.parentElement) {

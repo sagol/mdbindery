@@ -609,6 +609,26 @@ def test_pdf_contents_gate_never_finds_a_hidden_entry_in_the_chapter_text_after_
 
 
 @needs_pandoc
+def test_pdf_contents_gate_takes_no_letters_between_entries(tmp_path, browser):
+    files = {'01.md': '# One\n\nBetaword appears here.\n', '02.md': '# Betaword\n\nText.\n'}   # a short heading, then the words
+    css = ('nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
+           'nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }')
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']
+    assert not summary['ok'] and any('«Betaword» is not in the printed contents text' in p for p in outline['problems']), outline
+
+
+@needs_pandoc
+def test_pdf_locator_links_change_no_body_structure(tmp_path, browser):
+    files = {'01.md': '# First\n\nKeptword.\n\nHiddenword.\n', '02.md': '# Second\n\nText.\n\nLastword.\n'}
+    css = 'body > p:last-child { display: none; }'   # the book's last paragraph, as the author's CSS selects it
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    reader = PdfReader(summary['pdf'])
+    assert 'lastword' not in pdfnav.normalized(''.join(p.extract_text() or '' for p in reader.pages))
+
+
+@needs_pandoc
 @pytest.mark.parametrize('css', ['body > h1 { transform: translateZ(1px); }', 'nav#TOC a { display: inline-block; transform: translateZ(1px); }'])
 def test_pdf_a_3d_transform_that_keeps_its_area_draws(tmp_path, browser, css):
     summary = build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)

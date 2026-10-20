@@ -5,8 +5,8 @@ The outline holds exactly pandoc's contents (nav#TOC). Each entry's destination 
 the page script; for an element with no box of its own (display: contents), for which Chrome writes no destination, it
 is the first element inside that has one, given an id only where it has none. The title block, the contents nav and the
 rights line are placed the same way, from their own ids. Chrome writes a destination only for a link target, so hidden
-links to each (no annotation, tag or text) follow the book's content; no element is put among an author's, where a
-structural selector of the book's CSS could match it."""
+links to each (no annotation, tag or text) go in the document's head, where Chrome still finds them; no element is
+put in the body, where a structural selector of the book's CSS could match it."""
 import html
 import re
 import unicodedata
@@ -274,9 +274,6 @@ def finalize(source, target, rows, meta, aliases=None):
         writer.write(out)
 
 
-ENTRY_GAP = 8   # letters and digits allowed between two printed contents entries: a list marker, a page number at a page break
-
-
 def normalized(text):
     """Letters and digits only, NFKC, case-folded: how labels, titles and rights are found in a page's text."""
     return ''.join(c for c in unicodedata.normalize('NFKC', text or '').casefold() if c.isalnum())
@@ -301,7 +298,12 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     import xml.etree.ElementTree as ElementTree
     reader = PdfReader(path, strict=True)
     place = lambda ident: (places or {}).get(ident, ident)   # the element each locator's destination was written for
-    texts = [normalized(p.extract_text() or '') for p in reader.pages]
+    raw = [p.extract_text() or '' for p in reader.pages]
+    texts = [normalized(t) for t in raw]
+
+    def unnumbered(i):   # page i's text without the page number its footer prints, its last line
+        lines = raw[i].rstrip().split('\n')
+        return normalized('\n'.join(lines[:-1] if lines and lines[-1].strip() == str(i + 1) else lines))
     problems, skipped = [], []
     found = _flat(reader, reader.outline)
     if found != rows:
@@ -323,7 +325,8 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
             problems.append('the contents page has no destination, so its entries cannot be found on it')
         else:   # the contents pages through the first listed heading's page, which the contents may share with it; the entries
             last = max(min(row[2] for row in rows), first)   # are read as the sequence they print in, each right after the
-            contents = ''.join(texts[first:last + 1])   # one before, so nothing is ever found in the chapter text that follows
+            contents = ''.join(unnumbered(i) for i in range(first, last + 1))   # one before: only digits (a list marker) may stand
+                                                                                 # between, so nothing is found in later text
             title = normalized(toc_title)
             if title and title in contents:
                 at, anchored = contents.index(title) + len(title), True
@@ -333,7 +336,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                 skipped.append(f'«{label}»: no printed words in the contents to find')
                 continue
             where = contents.find(want, at)
-            if where >= 0 and anchored and where - at > ENTRY_GAP:   # not where it prints: further on, in other text
+            if where >= 0 and anchored and not re.fullmatch(r'\d{0,6}', contents[at:where]):   # not where it prints: further on
                 where = -1
             if where < 0:
                 pages = f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
