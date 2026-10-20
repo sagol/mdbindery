@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from conftest import EXAMPLES, FIXTURES, needs_pandoc, validate_if_installed
@@ -418,3 +419,13 @@ def test_pdf_math_headings_carry_their_rendered_labels(tmp_path, browser):
     labels = [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
     assert labels == ['Energy E=mc2', 'Water H2O'] and summary['gates']['pdf']['outline']['result'] == 'pass'
 
+
+@needs_pandoc
+def test_pdf_bookmarks_name_images_by_their_alt_text(tmp_path, browser):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Map ![of Mars](logo.png) today\n\nText.\n'}, lang='en-US')
+    Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    labels = [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
+    assert labels == ['Logo', 'Map of Mars today']
+    assert any('Logo' in n for n in summary['gates']['pdf']['outline']['not_checked'])   # an image-only heading has no page text

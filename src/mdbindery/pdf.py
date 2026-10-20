@@ -48,9 +48,13 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       entries: Array.from(document.querySelectorAll('nav#TOC a[href^="#mdb-dest-"]')).map(a => {
         const id = a.getAttribute('href').slice(1);
         const anchor = document.getElementById(id);
-        const label = a.cloneNode(true);   // the word gate's extraction rule: no TeX annotation, script or style
-        label.querySelectorAll('annotation, script, style').forEach(n => n.remove());
-        return {id, label: label.textContent.replace(/\s+/g, ' ').trim(),
+        const text = a.cloneNode(true);   // the word gate's extraction rule: no TeX annotation, script or style
+        text.querySelectorAll('annotation, script, style').forEach(n => n.remove());
+        text.querySelectorAll('br').forEach(n => n.replaceWith(' '));
+        const label = text.cloneNode(true);   // the bookmark also names an image by its alt text
+        label.querySelectorAll('img').forEach(n => n.replaceWith(' ' + (n.getAttribute('alt') || '') + ' '));
+        const clean = node => node.textContent.replace(/\s+/g, ' ').trim();
+        return {id, label: clean(label), text: clean(text),
           printed: !!anchor && anchor.checkVisibility({visibilityProperty: true})};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
@@ -223,7 +227,8 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         except Exception as e:   # a parser or writer failure: the previous PDF stays
             raise BuildError(f'PDF navigation and metadata could not be written: {e}') from e
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
-        outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights)
+        outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights,
+                                                       printed=[e['text'] for e in entries])
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:
         temporary.unlink(missing_ok=True)

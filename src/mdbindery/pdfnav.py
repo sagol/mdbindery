@@ -125,7 +125,7 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{seen.get('label', '')}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
-        out.append(dict(e, label=seen.get('label', '')))
+        out.append(dict(e, label=seen.get('label', ''), text=seen.get('text', seen.get('label', ''))))
     return out
 
 
@@ -252,8 +252,9 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def gates(path, rows, meta, toc_title, has_nav, rights):
-    """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}."""
+def gates(path, rows, meta, toc_title, has_nav, rights, printed=None):
+    """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
+    entry's printed text, which the page check looks for (a bookmark label may also name an image by its alt text)."""
     from pypdf import PdfReader
     import xml.etree.ElementTree as ElementTree
     reader = PdfReader(path, strict=True)
@@ -262,8 +263,8 @@ def gates(path, rows, meta, toc_title, has_nav, rights):
     found = _flat(reader, reader.outline)
     if found != rows:
         problems.append(f'the outline is not the projected one ({len(found)} entries against {len(rows)})')
-    for label, _, page, *_ in rows:
-        want = normalized(label)
+    for n, (label, _, page, *_) in enumerate(rows):
+        want = normalized(printed[n] if printed is not None else label)
         if not want:
             skipped.append(f'«{label}»: no letters or digits to find')
             continue
