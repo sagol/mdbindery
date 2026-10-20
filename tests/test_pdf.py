@@ -189,9 +189,21 @@ def test_pdf_hidden_body_fails_text_gate(tmp_path, browser):
     css = cfg.base / 'hide.css'
     css.write_text('body { visibility: hidden; }')
     cfg.opts['extra_css'] = str(css)
+    cfg.opts['toc'] = False   # with contents, the hidden chapter heading stops the build first (the next test)
     summary = build(cfg, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert not summary['ok'] and summary['gates']['pdf']['result'] == 'fail'
     assert summary['gates']['pdf']['missing_words'] >= 100
+
+
+@needs_pandoc
+def test_pdf_contents_entry_for_a_hidden_heading_stops_the_build(tmp_path, browser):
+    cfg = small_book(tmp_path)
+    css = cfg.base / 'hide.css'
+    css.write_text('h1:not(.title) { visibility: hidden; }')
+    cfg.opts['extra_css'] = str(css)
+    with pytest.raises(BuildError, match="isn't printed"):
+        build(cfg, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert not list((tmp_path / 'out').glob('*.pdf*'))   # no PDF, and no temporary file left
 
 
 @needs_pandoc
@@ -270,3 +282,139 @@ def test_epub_preview_with_symlinked_temp_directory(copy_book, tmp_path, browser
     shots = preview_module.preview(summary['epub'], tmp_path / 'shots', pages=['text/ch001.xhtml'])
     assert shots and Path(shots[0]).read_bytes().startswith(b'\x89PNG')
     assert not list(real.iterdir())
+
+
+def nav_book(tmp_path, files, lang='ru', toc=True, toc_depth=2, toc_title='', rights='© 2026 «Автор» & Co', css='', extra=''):
+    """A small book for the outline and metadata checks: each file is one chapter on its own page."""
+    book = tmp_path / 'book'
+    book.mkdir()
+    for name, text in files.items():
+        (book / name).write_text(text, encoding='utf-8')
+    if css:
+        (book / 'extra.css').write_text(css, encoding='utf-8')
+    (book / 'mdbindery.yaml').write_text(
+        'metadata:\n  title: "Навигация & <тест>"\n  authors: [Анна Первая, "Bo & Co"]\n  identifier: urn:uuid:test\n'
+        f'  date: 2026-10-20\n  lang: {lang}\n  rights: {json.dumps(rights)}\n  description: "Описание & <ещё>"\n'
+        '  subjects: [Марс, "A & B"]\n  publisher: Издатель\n'
+        f'options:\n  mermaid: placeholder\n  toc: {str(toc).lower()}\n  toc_depth: {toc_depth}\n  toc_title: {json.dumps(toc_title)}\n'
+        + ('  extra_css: extra.css\n' if css else '') + extra, encoding='utf-8')
+    return config.load(book)
+
+
+def outline_of(reader):
+    out = []
+
+    def walk(items, depth):
+        for item in items:
+            if isinstance(item, list):
+                walk(item, depth + 1)
+            else:
+                out.append((str(item.title), depth, reader.get_destination_page_number(item)))
+    walk(reader.outline, 1)
+    return out
+
+
+CHAPTERS = {'01.md': '# Первая глава\n\nТекст первой главы.\n\n## Раздел один\n\nЕщё текст.\n',
+            '02.md': '# Вторая глава\n\nТекст второй главы.\n\n### Глубже\n\nСовсем глубоко.\n',
+            '03.md': '# Третья глава\n\nТекст третьей главы.\n'}
+
+
+@needs_pandoc
+def test_pdf_outline_metadata_and_front_matter(tmp_path, browser):
+    summary = build(nav_book(tmp_path, CHAPTERS), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    gates = summary['gates']
+    assert [gates['pdf']['words']] + [gates['pdf'][k]['result'] for k in ('outline', 'front_matter', 'metadata')] == ['pass'] * 4
+    reader = PdfReader(summary['pdf'])
+    found = outline_of(reader)
+    assert [(t, d) for t, d, _ in found] == [('Первая глава', 1), ('Раздел один', 2), ('Вторая глава', 1), ('Третья глава', 1)]
+    pages = [p for _, _, p in found]
+    assert pages[0] < pages[2] < pages[3] and pages[1] == pages[0]   # chapters on their own pages; the section on its chapter's
+    for title, _, page in found:
+        assert title in reader.pages[page].extract_text()
+    info = reader.metadata
+    assert (info['/Title'], info['/Author'], info['/Subject'], info['/Keywords']) == (
+        'Навигация & <тест>', 'Анна Первая; Bo & Co', 'Описание & <ещё>', 'Марс, A & B')
+    assert reader.trailer['/Root']['/Lang'] == 'ru' and '/StructTreeRoot' in reader.trailer['/Root']
+    xmp = reader.trailer['/Root']['/Metadata'].get_object().get_data().decode('utf-8')
+    assert '<rdf:Seq><rdf:li>Анна Первая</rdf:li><rdf:li>Bo &amp; Co</rdf:li></rdf:Seq>' in xmp and '<dc:publisher>' in xmp
+    title_page = next(i for i, p in enumerate(reader.pages) if 'Навигация' in (p.extract_text() or ''))
+    assert '© 2026 «Автор» & Co' in reader.pages[title_page].extract_text()
+    assert 'Содержание' in reader.pages[title_page + 1].extract_text()
+    links = sum(1 for p in reader.pages for a in (p.get('/Annots') or []) if a.get_object().get('/Subtype') == '/Link')
+    assert links == 4   # the four contents links; the hidden locators add none
+
+
+@needs_pandoc
+@pytest.mark.parametrize('lang, toc_title, heading', [('de', 'Inhalt', 'Inhalt'), ('de', '', None), ('en-US', '', 'Contents')])
+def test_pdf_contents_heading_follows_toc_title(tmp_path, browser, lang, toc_title, heading):
+    summary = build(nav_book(tmp_path, CHAPTERS, lang=lang, toc_title=toc_title), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    front = summary['gates']['pdf']['front_matter']
+    reader = PdfReader(summary['pdf'])
+    contents = next(i for i, p in enumerate(reader.pages) if 'Первая глава' in (p.extract_text() or ''))
+    if heading:
+        assert heading in reader.pages[contents].extract_text() and not front['not_applicable'][1:]
+    else:
+        assert any('no title for this language' in n for n in front['not_applicable'])
+
+
+@needs_pandoc
+def test_pdf_without_contents_still_checks_the_rights_line(tmp_path, browser):
+    summary = build(nav_book(tmp_path, CHAPTERS, toc=False), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert PdfReader(summary['pdf']).outline == []
+    front = summary['gates']['pdf']['front_matter']
+    assert front['result'] == 'pass' and any('contents disabled' in n for n in front['not_applicable'])
+
+
+@needs_pandoc
+@pytest.mark.parametrize('depth, entries', [(1, 3), (2, 4), (6, 5)])
+def test_pdf_outline_follows_toc_depth(tmp_path, browser, depth, entries):
+    summary = build(nav_book(tmp_path, CHAPTERS, toc_depth=depth), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    found = outline_of(PdfReader(summary['pdf']))
+    assert len(found) == entries
+    if depth == 6:
+        assert ('Глубже', 2) in [(t, d) for t, d, _ in found]   # a skipped level nests under its chapter, as the contents does
+
+
+@needs_pandoc
+def test_pdf_repeated_titles_and_two_headings_on_one_page_keep_their_own_destinations(tmp_path, browser):
+    files = {'01.md': '# Интерлюдия\n\nПервая.\n', '02.md': '# Интерлюдия\n\nВторая.\n\n## Альфа\n\nТекст.\n\n## Бета\n\nТекст.\n'}
+    summary = build(nav_book(tmp_path, files), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    found = outline_of(PdfReader(summary['pdf']))
+    assert [t for t, _, _ in found] == ['Интерлюдия', 'Интерлюдия', 'Альфа', 'Бета']
+    assert found[0][2] < found[1][2] == found[2][2] == found[3][2]
+
+
+@needs_pandoc
+def test_pdf_display_contents_heading_gets_its_bookmark(tmp_path, browser):
+    summary = build(nav_book(tmp_path, CHAPTERS, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
+                    output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert 'Вторая глава' in [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, prose, veil', [
+    ('body > h1:nth-of-type(2) { display: none; }', '', False),
+    ('body > h1:nth-of-type(2) { visibility: hidden; }', 'Слова Вторая глава повторены здесь в тексте.', False),   # the label is still on the page
+    ('.veil { visibility: hidden; }', '', True),   # hidden through a parent (raw HTML, which GFM passes through)
+])
+def test_pdf_contents_entry_whose_heading_is_not_printed_stops_the_build(tmp_path, browser, css, prose, veil):
+    heading = '<div class="veil">\n\n# Вторая глава\n\n</div>\n\n' if veil else '# Вторая глава\n\n'
+    files = dict(CHAPTERS, **{'02.md': heading + prose + '\n\nТекст второй главы.\n'})
+    with pytest.raises(BuildError, match="«Вторая глава» points to a heading that isn't printed"):
+        build(nav_book(tmp_path, files, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_math_headings_carry_their_rendered_labels(tmp_path, browser):
+    files = {'01.md': '# Energy $E=mc^2$\n\nText.\n', '02.md': '# Water $\\mathrm{H_2O}$\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US'), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    labels = [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
+    assert labels == ['Energy E=mc2', 'Water H2O'] and summary['gates']['pdf']['outline']['result'] == 'pass'
+

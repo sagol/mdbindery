@@ -34,18 +34,26 @@ options:
 
 `page_size` accepts `A4` or `Letter`. Uniform margins accept finite values from 10 to 40 mm. Page numbers count every page, including cover and title. Defaults shown above. `options.toc` and `toc_depth` apply to both formats; `split_level` controls EPUB only.
 
+## Navigation, metadata and the title page
+
+With `options.toc` true (the default), the PDF has a bookmark outline that matches the printed contents: the same entries, `toc_depth` deep, nested as the contents nests them, each opening the page its heading is printed on. With `options.toc` false there is neither a printed contents page nor an outline. A heading listed in the contents must be printed: one hidden by CSS (`display: none` or `visibility: hidden`, on it or a parent) stops the build with its title; show it, or keep it out of the contents with a lower `toc_depth`.
+
+The contents page is headed by `options.toc_title`, else the built-in title for the book's language («Содержание», Contents), as in the EPUB; a language without a built-in title and no `toc_title` gets no heading. The title page carries `metadata.rights`, when set, below the title, author and date.
+
+The document information comes from the configuration: Title from `title` (without the subtitle), Author from `authors` joined with `; `, Subject from `description`, Keywords from `subjects`. An XMP metadata stream holds the same, with `dc:rights`, `dc:publisher` and `dc:language` when set. Empty fields are left out. The language stays in the catalog's `Lang`, from `metadata.lang`.
+
 PDF uses shared book CSS plus print overrides for page breaks, tables, code wrapping and image height. `options.css` and `extra_css` still apply, subject to those overrides. Fonts referenced by CSS must be listed in `options.embed_fonts`; use the same path in `url(...)` and that list. Font files and resolved chapter images are copied into temporary work storage. Other CSS resources and imports outside that explicit file set fail export. No remote assets download during PDF rendering.
 
 ## Checks and failures
 
-Both formats run existing source checks for links, images, charts and includes. PDF additionally checks loaded images/fonts and internal HTML links, parses the generated PDF, and compares its extracted text with generated HTML text. Text comparison uses existing `wordcount_tolerance` and `wordcount_min_words`; it tolerates page numbers and repeated table headings. EPUBCheck, Ace and the EPUB-specific per-chapter word-count gate do not run for PDF.
+Both formats run existing source checks for links, images, charts and includes. PDF additionally checks loaded images/fonts and internal HTML links, parses the generated PDF, and compares its extracted text with generated HTML text. The final file is then reopened for three more checks, reported as parts of the `pdf` gate in `build.json`: `outline` (the bookmarks equal the contents, each title on its destination page), `front_matter` (the title and the rights line on the title page, the contents heading on the contents page; a part that does not apply is recorded as such) and `metadata` (Info, XMP and `Lang` equal the configuration). Any failed part fails the gate. Text comparison uses existing `wordcount_tolerance` and `wordcount_min_words`; it tolerates page numbers and repeated table headings. EPUBCheck, Ace and the EPUB-specific per-chapter word-count gate do not run for PDF.
 
-Exit codes remain: `0` for passing checks, `1` for a failed gate, `2` for an input/build error. A readable PDF with a failed text gate remains available for inspection and is marked failed. Renderer errors preserve an older PDF and remove the partial replacement. PDF reports identify failed stages and record Chromium/Puppeteer versions.
+Exit codes remain: `0` for passing checks, `1` for a failed gate, `2` for an input/build error. A readable PDF with a failed gate remains available for inspection and is marked failed. Renderer errors preserve an older PDF and remove the partial replacement. PDF reports identify failed stages and record Chromium/Puppeteer versions.
 
 Document scripts are disabled. Browser requests allow only staged assets and data URLs. Rendering uses a process deadline and process-tree cleanup. PDF never automatically retries without the browser sandbox. On a trusted CI/container host that cannot launch Chromium's sandbox, explicitly set `MDBINDERY_NO_SANDBOX=1`; export prints a warning. A remembered Mermaid sandbox fallback alone does not disable the PDF sandbox.
 
 ## Limits
 
-Inspect the PDF before sharing. Text extraction cannot prove correct pagination, glyph appearance, reading order or absence of clipping. Math and unusual scripts can need manual inspection. Notes appear as endnotes. Table of contents links are clickable; printed destination page numbers are not generated.
+Inspect the PDF before sharing. Text extraction cannot prove correct pagination, glyph appearance, reading order or absence of clipping. Math and unusual scripts can need manual inspection. Notes appear as endnotes. Table of contents links and bookmarks are clickable; printed destination page numbers are not generated. The title page must fit on one page for its check to pass.
 
 PDF bytes can differ across builds due to browser metadata, fonts and renderer versions. EPUB reproducibility behavior is unchanged. PDF/A, PDF/UA, printer acceptance and full accessibility conformance are not claimed. Advanced print production and alternative PDF engines are outside this export option.

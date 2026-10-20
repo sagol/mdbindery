@@ -9,7 +9,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-from . import config, tools
+from . import config, pdfnav, tools
 from .build import BuildError, DATA, meta_value, run
 
 
@@ -45,6 +45,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       source.querySelectorAll('annotation, script, style').forEach(n => n.remove());
       return {
       text: source.textContent,
+      entries: Array.from(document.querySelectorAll('nav#TOC a[href^="#mdb-dest-"]')).map(a => {
+        const id = a.getAttribute('href').slice(1);
+        const anchor = document.getElementById(id);
+        const label = a.cloneNode(true);   // the word gate's extraction rule: no TeX annotation, script or style
+        label.querySelectorAll('annotation, script, style').forEach(n => n.remove());
+        return {id, label: label.textContent.replace(/\s+/g, ' ').trim(),
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true})};
+      }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
       brokenLinks: Array.from(document.querySelectorAll('a[href^="#"]')).filter(a => {
@@ -62,6 +70,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       footerTemplate: '<div style="font-size:9px;text-align:center;width:100%"><span class="pageNumber"></span></div>',
       timeout: 120000});
     fs.writeFileSync(jobs.text, documentState.text, 'utf8');
+    fs.writeFileSync(jobs.entries, JSON.stringify(documentState.entries), 'utf8');
     console.log(JSON.stringify({browser: await browser.version(),
       puppeteer: require('puppeteer/package.json').version}));
   } finally { await browser.close(); }
@@ -114,6 +123,9 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     document = json.loads(Path(analysis['linked']).read_text(encoding='utf-8'))
     meta = {k: cfg.meta[k] for k in ('title', 'subtitle', 'lang', 'description')}
     meta.update(author=cfg.meta['authors'], date=date)
+    toc_title = config.toc_title(cfg.opts) if cfg.opts['toc'] else ''
+    if toc_title:
+        meta['toc-title'] = toc_title   # pandoc's HTML template puts it in nav#TOC; a literal string, never a boolean
     document['meta'] = {k: meta_value(v) for k, v in meta.items()}
     assets = work / 'pdf-assets'
     assets.mkdir(exist_ok=True)
@@ -178,26 +190,48 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     result = run(command, timeout=1800)
     for line in result.stderr.splitlines():
         log(f'  pandoc: {line}')
+    rights = cfg.meta.get('rights') or ''
+    entries, has_nav = pdfnav.prepare(html_file, rights)   # anchors, locators and the rights line
     script = work / 'pdf.js'
     script.write_text(JS, encoding='utf-8')
     text_file = work / 'pdf-text.txt'
+    entries_file = work / 'pdf-entries.json'
     temporary = destination.with_name(f'{destination.name}.{os.getpid()}.part')
+    final = destination.with_name(f'{destination.name}.{os.getpid()}.final.part')
     # Explicit opt-out only. A failed sandbox or remembered Mermaid fallback never downgrades PDF silently.
     args = ['--no-sandbox'] if os.environ.get('MDBINDERY_NO_SANDBOX') else []
     if args:
         log('  warning: PDF browser sandbox disabled by MDBINDERY_NO_SANDBOX')
-    jobs = {'html': str(html_file), 'output': str(temporary), 'text': str(text_file),
+    jobs = {'html': str(html_file), 'output': str(temporary), 'text': str(text_file), 'entries': str(entries_file),
             'files': [str(p) for p in [html_file, pdf_css, print_css, *staged.values()]],
             'args': args, 'page_size': settings['page_size'], 'page_numbers': settings['page_numbers'],
             'margin': f'{settings["margin_mm"]}mm'}
     jobs_file = work / 'pdf-jobs.json'
     jobs_file.write_text(json.dumps(jobs), encoding='utf-8')
+    meta = {k: cfg.meta.get(k) or ('' if k not in ('authors', 'subjects') else []) for k in
+            ('title', 'authors', 'description', 'subjects', 'rights', 'publisher', 'lang')}
     try:
         result = run([node, script, jobs_file], env=env, timeout=600, tail=65536)
         browser = json.loads(result.stdout.strip())
-        check = validate_pdf(temporary, text_file.read_text(encoding='utf-8'), cfg.opts)
-        temporary.replace(destination)
+        entries = pdfnav.join_entries(entries, json.loads(entries_file.read_text(encoding='utf-8')))
+        try:
+            from pypdf import PdfReader, __version__ as pypdf_version
+            rows, _ = pdfnav.project(PdfReader(temporary, strict=True), entries, has_nav, rights)
+            pdfnav.finalize(temporary, final, rows, meta)
+        except BuildError:
+            raise
+        except Exception as e:   # a parser or writer failure: the previous PDF stays
+            raise BuildError(f'PDF navigation and metadata could not be written: {e}') from e
+        check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
+        outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights)
+        final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:
         temporary.unlink(missing_ok=True)
-    log(f'  PDF: {check["pages"]} pages; {check["missing_words"]} missing words from rendered HTML')
-    return check, browser
+        final.unlink(missing_ok=True)
+    browser['pypdf'] = pypdf_version
+    log(f'  PDF: {check["pages"]} pages; {check["missing_words"]} missing words from rendered HTML; '
+        f'outline {outline["result"]} ({len(rows)} entries), front matter {front_matter["result"]}, metadata {metadata["result"]}')
+    gate = dict(check, words=check['result'], outline=outline, front_matter=front_matter, metadata=metadata)   # each part on its own
+    gate['result'] = 'pass' if all(r == 'pass' for r in (check['result'], outline['result'], front_matter['result'],
+                                                          metadata['result'])) else 'fail'
+    return gate, browser
