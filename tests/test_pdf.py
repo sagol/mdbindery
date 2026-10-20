@@ -436,3 +436,10 @@ def test_pdf_contents_entry_hidden_in_print_stops_the_build(tmp_path, browser):
     css = 'nav#TOC li:nth-child(2) { display: none; }'
     with pytest.raises(BuildError, match='«Вторая глава» is hidden in the printed contents'):
         build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_contents_links_without_a_box_of_their_own_still_count_as_printed(tmp_path, browser):
+    summary = build(nav_book(tmp_path, CHAPTERS, css='nav#TOC a { display: contents; }'), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert len(outline_of(PdfReader(summary['pdf']))) == 4

@@ -70,6 +70,10 @@ def test_prepare_without_contents_or_rights_adds_only_the_title_locator(tmp_path
     (lambda t: t.replace('href="#second"', 'href="#missing"'), "points to 'missing'"),
     (lambda t: t.replace('href="#second"', 'href="#toc-title"'), "points to 'toc-title'"),   # inside the contents
     (lambda t: t.replace('href="#second"', 'href="#cover-img"'), "points to 'cover-img'"),   # a void element in the cover
+    (lambda t: t.replace('href="#second"', 'href="#title-block-header"'), "points to 'title-block-header'"),   # a region's own root
+    (lambda t: t.replace('href="#second"', 'href="#TOC"'), "points to 'TOC'"),
+    (lambda t: t.replace('<section class="pdf-cover">', '<section class="pdf-cover" id="cover-root">').replace('href="#second"', 'href="#cover-root"'),
+     "points to 'cover-root'"),
     (lambda t: t.replace('<p>Текст.</p>', '<p id="mdb-dest-9">Текст.</p>'), 'reserved'),
     (lambda t: t.replace('<header id="title-block-header">', '<header>'), 'no title block'),
 ])

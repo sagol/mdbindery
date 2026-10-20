@@ -47,8 +47,10 @@ class _Scan(HTMLParser):
         start = self._offset()
         end = start + len(self.get_starttag_text())
         ident = attrs.get('id')
+        classes = set((attrs.get('class') or '').split())
+        here = tag == 'section' and 'pdf-cover' in classes or ident in ('title-block-header', 'TOC')   # a region's own root counts
         if ident is not None and ident not in self.ids:
-            self.ids[ident] = {'tag': tag, 'end': end, 'region': self._region()}
+            self.ids[ident] = {'tag': tag, 'end': end, 'region': self._region() or here}
         if tag == 'nav' and ident == 'TOC' and self.nav is None:
             self.nav, self._nav_at = end, len(self.stack)
         elif self._nav_at is not None and self._nav_at >= 0 and tag == 'a' and (attrs.get('href') or '').startswith('#'):
@@ -57,7 +59,7 @@ class _Scan(HTMLParser):
         if tag == 'header' and ident == 'title-block-header' and self.header is None:
             self.header, self._header_at = end, len(self.stack)
         if tag not in VOID:
-            self.stack.append((tag, ident, set((attrs.get('class') or '').split())))
+            self.stack.append((tag, ident, classes))
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)

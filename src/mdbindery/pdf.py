@@ -56,7 +56,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const clean = node => node.textContent.replace(/\s+/g, ' ').trim();
         return {id, label: clean(label), text: clean(text),
           printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}),
-          listed: a.checkVisibility({visibilityProperty: true})};   // the entry itself shows in the printed contents
+          listed: (() => {   // the entry shows in the printed contents: its contents lay out (a display: contents link
+            const range = document.createRange();   // has no box of its own) and it is not hidden
+            range.selectNodeContents(a);
+            return range.getClientRects().length > 0 && getComputedStyle(a).visibility === 'visible';
+          })()};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
