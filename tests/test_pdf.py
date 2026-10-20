@@ -487,6 +487,23 @@ def test_pdf_contents_entry_with_nothing_visible_stops_the_build(tmp_path, brows
 
 
 @needs_pandoc
+@pytest.mark.parametrize('hidden', ['nav#TOC li:first-child a', 'nav#TOC li:first-child'])
+def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser, hidden):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = f'{hidden} {{ display: none; }} nav#TOC a::before {{ content: "Chapter "; }}'   # the pseudo's own display is still inline
+    with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_generated_text_of_a_hidden_part_stays_out_of_the_bookmark(tmp_path, browser):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC em { display: none; } nav#TOC em::after { content: "!"; }'
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['Map today', 'Second']
+
+
+@needs_pandoc
 def test_pdf_contents_entry_hidden_in_print_stops_the_build(tmp_path, browser):
     css = 'nav#TOC li:nth-child(2) { display: none; }'
     with pytest.raises(BuildError, match='«Вторая глава» is hidden in the printed contents'):

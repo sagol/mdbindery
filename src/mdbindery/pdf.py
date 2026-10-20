@@ -86,6 +86,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (words.trim()) shows = true;
           label += words;
         };
+        const hides = el => {   // nothing inside it prints, its ::before and ::after included, whatever their own style says
+          const style = getComputedStyle(el);
+          return style.display === 'none' || style.contentVisibility === 'hidden';
+        };
         const walk = node => {
           if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
@@ -97,8 +101,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                 label += n.data;
                 shows = true;
               }
-            } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName)
-                       && getComputedStyle(n).display !== 'none') {
+            } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
               if (n.localName === 'br') label += ' ';
               else if (n.localName !== 'img') walk(n);
               else if (n.checkVisibility({visibilityProperty: true})) {
@@ -109,7 +112,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
-        walk(a);
+        let lays = true;   // the link and every ancestor (its list item, the nav) lay out
+        for (let el = a; el; el = el.parentElement) if (hides(el)) lays = false;
+        if (lays) walk(a);
         return {id, label: label.replace(/\s+/g, ' ').trim(), text: text.textContent.replace(/\s+/g, ' ').trim(),
           printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}), listed: shows, unresolved};
       }),
