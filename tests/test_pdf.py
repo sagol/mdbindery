@@ -565,6 +565,9 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('body > h1 img { transform: rotate(45deg) scaleX(0); }', "points to a heading that isn't printed"),   # no area, a box left
     ('nav#TOC img { transform: scale(0); }', 'is hidden in the printed contents'),   # the entry's only content drawn at no size
     ('nav#TOC img { transform: rotate(45deg) scaleX(0); }', 'is hidden in the printed contents'),
+    ('body > h1 img { clip-path: inset(50%); }', "points to a heading that isn't printed"),   # a box and a size, nothing drawn
+    ('nav#TOC img { clip-path: inset(50%); }', 'is hidden in the printed contents'),
+    ('nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }', 'is hidden in the printed contents'),
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -619,6 +622,35 @@ def test_pdf_contents_gate_takes_no_letters_between_entries(tmp_path, browser):
 
 
 @needs_pandoc
+@pytest.mark.parametrize('lang, files, css', [
+    ('fr', {'01.md': '# Alphaword\n\nText.\n'}, 'nav#TOC a { display: inline-block; clip-path: inset(50%); }'),   # no title
+    ('fr', {'01.md': '# Alphaword\n\nText.\n'}, 'nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
+                                               'nav#TOC a { display: inline-block; clip-path: inset(50%); }'),   # on a shared page
+    ('en-US', {'01.md': '# 1\n\nBetaword appears here.\n', '02.md': '# Betaword\n\nText.\n'},   # a numeric heading, then the words
+     'nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
+     'nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }'),
+])
+def test_pdf_contents_gate_finds_no_entry_outside_the_printed_contents(tmp_path, browser, lang, files, css):
+    summary = build(nav_book(tmp_path, files, lang=lang, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']
+    assert not summary['ok'] and any('is not in the printed contents text' in p for p in outline['problems']), outline
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, numbers', [
+    ('nav#TOC ul { list-style-type: lower-alpha; }', True),
+    ('nav#TOC ul { list-style-type: upper-roman; }', True),
+    ('nav#TOC ul { list-style-type: decimal; }', True),
+    ('', False),   # unnumbered pages: a contents entry "3" on page 3 is no footer
+])
+def test_pdf_contents_gate_accepts_list_markers_and_unnumbered_pages(tmp_path, browser, css, numbers):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n', '03.md': '# 3\n\nText.\n'}   # "3", last on page 3
+    extra = '' if numbers else '  pdf:\n    page_numbers: false\n'
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css, extra=extra), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']['outline']
+
+
+@needs_pandoc
 def test_pdf_locator_links_change_no_body_structure(tmp_path, browser):
     files = {'01.md': '# First\n\nKeptword.\n\nHiddenword.\n', '02.md': '# Second\n\nText.\n\nLastword.\n'}
     css = 'body > p:last-child { display: none; }'   # the book's last paragraph, as the author's CSS selects it
@@ -644,7 +676,7 @@ def test_pdf_outline_gate_finds_each_entry_in_the_printed_contents(tmp_path, bro
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']
     assert not summary['ok'] and outline['result'] == 'fail'
-    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (pages 3–4); CSS may keep it out of print']
+    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (page 3); CSS may keep it out of print']
 
 
 @needs_pandoc

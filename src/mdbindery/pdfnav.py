@@ -137,7 +137,8 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
-        out.append(dict(e, anchor=seen.get('anchor') or e['key'], label=seen.get('label', ''), text=seen.get('text', seen.get('label', '')),
+        out.append(dict(e, anchor=seen.get('anchor') or e['key'], marker=seen.get('marker', ''), label=seen.get('label', ''),
+                        text=seen.get('text', seen.get('label', '')),
                         words=seen.get('words', seen.get('label', ''))))
     return out
 
@@ -289,7 +290,8 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None):
+def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None, markers=None,
+          before='', page_numbers=True):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
     entry's heading words, which the page check looks for on its destination page (a bookmark label may also name an image
     by its alt text); listed holds the words each entry shows in the contents, which must be in the contents pages' own
@@ -301,9 +303,9 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     raw = [p.extract_text() or '' for p in reader.pages]
     texts = [normalized(t) for t in raw]
 
-    def unnumbered(i):   # page i's text without the page number its footer prints, its last line
+    def unnumbered(i):   # page i's text without the page number its footer prints (its last line), when pages are numbered
         lines = raw[i].rstrip().split('\n')
-        return normalized('\n'.join(lines[:-1] if lines and lines[-1].strip() == str(i + 1) else lines))
+        return normalized('\n'.join(lines[:-1] if page_numbers and lines and lines[-1].strip() == str(i + 1) else lines))
     problems, skipped = [], []
     found = _flat(reader, reader.outline)
     if found != rows:
@@ -320,29 +322,42 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     named = named_destinations(reader)
     if listed is not None and rows:
         first = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
-        contents, at, last, anchored = '', 0, first, False
+        contents, at, last = '', 0, first
         if first is None:
             problems.append('the contents page has no destination, so its entries cannot be found on it')
-        else:   # the contents pages through the first listed heading's page, which the contents may share with it; the entries
-            last = max(min(row[2] for row in rows), first)   # are read as the sequence they print in, each right after the
-            contents = ''.join(unnumbered(i) for i in range(first, last + 1))   # one before: only digits (a list marker) may stand
-                                                                                 # between, so nothing is found in later text
+        else:   # the contents pages, with the first listed heading's page when the contents run onto it (it does not start
+            lead = min(range(len(rows)), key=lambda n: rows[n][2])   # with that heading). The entries are read as the sequence
+            heading = normalized(printed[lead]) if printed is not None else ''   # they print in: each right after the one before,
+            last = max(rows[lead][2], first)   # with only its own list marker between, so nothing is found in later text
+            if last > first and heading and unnumbered(last).startswith(heading):
+                last -= 1
+            contents = ''.join(unnumbered(i) for i in range(first, last + 1))
+            ahead = normalized(before)   # a page the title block shares with the contents starts with the end of it
+            shared = place(TITLE) in named and reader.get_destination_page_number(named[place(TITLE)]) == first
+            at = next((k for k in range(min(len(ahead), len(contents)), 0, -1) if contents.startswith(ahead[-k:])), 0) if shared else 0
             title = normalized(toc_title)
-            if title and title in contents:
-                at, anchored = contents.index(title) + len(title), True
+            if title and contents.startswith(title, at):
+                at += len(title)
+        pages = '' if first is None else f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
+        matched = None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
             if not want:
                 skipped.append(f'«{label}»: no printed words in the contents to find')
                 continue
-            where = contents.find(want, at)
-            if where >= 0 and anchored and not re.fullmatch(r'\d{0,6}', contents[at:where]):   # not where it prints: further on
-                where = -1
+            mark = markers[n] if markers is not None else ''   # the entry is its own list marker, then its words, right here;
+            if mark is None:   # a marker style the page could not spell out: up to six letters or digits of it
+                found = re.match(r'\w{0,6}?' + re.escape(want), contents[at:])
+                where = at + found.end() - len(want) if found else -1
+            else:   # anything else there means the entry is not where it prints, and its words further on are other text
+                where = at + len(normalized(mark)) if contents.startswith(normalized(mark) + want, at) else -1
             if where < 0:
-                pages = f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
                 problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
             else:
-                at, anchored = where + len(want), True
+                at, matched = where + len(want), label
+        if first is not None and last == rows[lead][2] and heading and matched is not None and contents.find(heading, at) < 0:
+            problems.append(f'«{matched}» is not in the printed contents text ({pages}): what matched it is the heading that follows; '
+                            'CSS may keep it out of print')   # the shared page's heading must still lie ahead of every entry
     for index, page in enumerate(reader.pages):   # every printed contents link goes where its bookmark goes
         for raw, name in _link_names(page) if links else ():
             if name in links:

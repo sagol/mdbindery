@@ -157,19 +157,58 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
-        const drawn = img => {   // an image draws: visible, not transparent, an area left after transforms, on the page
-          const box = img.getBoundingClientRect();
-          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && box.width > 0
-            && box.height > 0 && box.right > 0 && box.bottom > 0;
+        const drawn = img => {   // an image draws: visible, not transparent, an area left after transforms and after every
+          let box = img.getBoundingClientRect();   // ancestor that clips its overflow, on the page; under a clip path, a mask
+          for (let e = img.parentElement; e; e = e.parentElement) {   // or a clip rectangle what is left cannot be told, so
+            const style = getComputedStyle(e);   // it counts as hidden
+            if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+              const outer = e.getBoundingClientRect();
+              box = {left: Math.max(box.left, outer.left), top: Math.max(box.top, outer.top),
+                     right: Math.min(box.right, outer.right), bottom: Math.min(box.bottom, outer.bottom)};
+            }
+          }
+          for (let e = img; e; e = e.parentElement) {
+            const style = getComputedStyle(e);
+            if (style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none') !== 'none'
+                || (style.clip !== 'auto' && ['absolute', 'fixed'].includes(style.position))) return false;
+          }
+          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && box.right > box.left
+            && box.bottom > box.top && box.right > 0 && box.bottom > 0;
         };
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
         return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved};
       };
+      const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
+        const li = a.closest('li');   // ::marker string, nothing for a bullet; null where it cannot be told
+        if (!li || getComputedStyle(li).display !== 'list-item' || li.closest('nav#TOC') === null) return '';
+        const content = getComputedStyle(li, '::marker').content;
+        if (content && content !== 'normal') {
+          if (content === 'none') return '';
+          return /counter|quote|attr/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');
+        }
+        const type = getComputedStyle(li).listStyleType, n = Array.from(li.parentElement.children).filter(c => c.localName === 'li').indexOf(li) + 1;
+        const letters = k => { let out = ''; while (k > 0) { k -= 1; out = String.fromCharCode(97 + k % 26) + out; k = Math.floor(k / 26); } return out; };
+        const roman = k => [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'],
+          [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']].reduce((out, [v, r]) => { while (k >= v) { out += r; k -= v; } return out; }, '');
+        if (['none', 'disc', 'circle', 'square', 'disclosure-open', 'disclosure-closed'].includes(type)) return '';
+        if (type === 'decimal') return String(n);
+        if (type === 'decimal-leading-zero') return n < 10 ? '0' + n : String(n);
+        if (/^(lower|upper)-(alpha|latin)$/.test(type)) return letters(n);
+        if (/^(lower|upper)-roman$/.test(type)) return roman(n);
+        return null;
+      };
+      const nav = document.getElementById('TOC');
+      let before = '';   // what is drawn before the contents nav (the title block, the cover): a page the two share starts with it
+      for (const el of nav ? document.body.children : []) {
+        if (el === nav || el.contains(nav)) break;
+        before += ' ' + scan(el, false).words;
+      }
       return {
       text: source.textContent,
       places,
+      before,
       entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
         const id = a.getAttribute('data-mdb-dest');
         let target = null;
@@ -182,6 +221,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
         return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
           name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
+          marker: marker(a),
           printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows,
           placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};
       }),
@@ -202,7 +242,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       footerTemplate: '<div style="font-size:9px;text-align:center;width:100%"><span class="pageNumber"></span></div>',
       timeout: 120000});
     fs.writeFileSync(jobs.text, documentState.text, 'utf8');
-    fs.writeFileSync(jobs.entries, JSON.stringify({entries: documentState.entries, places: documentState.places}), 'utf8');
+    fs.writeFileSync(jobs.entries, JSON.stringify({entries: documentState.entries, places: documentState.places,
+      before: documentState.before}), 'utf8');
     console.log(JSON.stringify({browser: await browser.version(),
       puppeteer: require('puppeteer/package.json').version}));
   } finally { await browser.close(); }
@@ -358,6 +399,8 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights, places=places,
                                                        printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
+                                                       markers=[e['marker'] for e in entries], before=reported['before'],
+                                                       page_numbers=settings['page_numbers'],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:
