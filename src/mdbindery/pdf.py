@@ -94,16 +94,22 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const cased = (piece, style, el) => {   // as text-transform prints it: Chrome's own result, read from a probe in the
           if (!style || ['none', 'math-auto'].includes(style.textTransform) || !el) return piece;   // element (its language and
           // context), forced to show the transform; math-auto only italicizes a math letter, as a style, so it stays plain
-          const lead = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}]$/u.test(label) ? Array.from(label).pop() : '';
-          const probe = document.createElement('span');   // show the transform, keep spaces and start its own line context; it
-          probe.textContent = lead + piece;   // leaves before printing, and the second print would catch anything it changed.
-          for (const [k, v] of [['text-transform', style.textTransform], ['display', 'inline-block'], ['white-space', 'pre']])
-            probe.style.setProperty(k, v, 'important');   // A word the piece before began goes on: capitalize leaves it
-          el.appendChild(probe);
-          const out = probe.innerText;
-          probe.remove();
-          return lead ? Array.from(out).slice(1).join('') : out;
-        };
+          const read = text => {   // the probe shows the transform, keeps spaces, starts its own line context and is visible
+            const probe = document.createElement('span');   // whatever the book's CSS or its element says (a hidden probe
+            probe.textContent = text;   // reads as nothing); it leaves before printing
+            for (const [k, v] of [['text-transform', style.textTransform], ['display', 'inline-block'], ['white-space', 'pre'],
+                                  ['visibility', 'visible'], ['content-visibility', 'visible']])
+              probe.style.setProperty(k, v, 'important');
+            el.appendChild(probe);
+            const out = probe.innerText;
+            probe.remove();
+            return out;
+          };
+          const tail = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}\p{M}]$/u.test(label)   // a word the piece
+            ? Array.from(new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(label)).pop().segment : '';   // before
+          const out = tail ? read(tail + piece).slice(read(tail).length) : read(piece);   // began goes on: its last grapheme
+          return piece.trim() && !out.trim() ? piece : out;   // leads, cut off as Chrome prints it; a probe that reads nothing
+        };   // never erases what the element prints
         const add = (piece, alt, outline = false, style = null, el = null) => {   // runs: its printed text in order, each piece
           piece = cased(piece, style, el);   // with whether it is drawn only as an outline (Chrome writes such a piece twice)
           label += piece;

@@ -1,6 +1,7 @@
 """PDF integration and EPUB compatibility checks. Never build source fixtures in place."""
 import json
 import re
+import unicodedata
 import urllib.parse
 import os
 from pathlib import Path
@@ -519,6 +520,19 @@ def test_pdf_bookmark_case_follows_what_chrome_prints(tmp_path, browser, lang, c
     reader = PdfReader(summary['pdf'])
     assert label in ''.join(p.extract_text() or '' for p in reader.pages)   # what Chrome printed in the contents
     assert [t for t, _, _ in outline_of(reader)][0] == label
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', [
+    'nav#TOC a { text-transform: uppercase; } nav#TOC span { visibility: hidden; }',   # no span in the book: only a probe
+    'nav#TOC a { visibility: hidden; text-transform: uppercase; } nav#TOC a::before { visibility: visible; } '   # would be
+    'nav#TOC li:first-child a::before { content: "First"; } nav#TOC li:nth-child(2) a::before { content: "Second"; }',   # hidden
+])
+def test_pdf_case_is_read_whatever_hides_the_elements_around_it(tmp_path, browser, css):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['FIRST', 'SECOND']
 
 
 @needs_pandoc
