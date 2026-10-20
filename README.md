@@ -153,7 +153,7 @@ The simplest way is gh. It keeps the token in its own store (the system keyring,
 
 ```bash
 sudo apt-get install -y gh                       # Debian and Ubuntu; elsewhere see https://github.com/cli/cli#installation
-unset GH_TOKEN GITHUB_TOKEN                      # an inherited token would take precedence over the author's
+unset GH_TOKEN GITHUB_TOKEN GH_HOST              # inherited ones would take precedence over the author's token or github.com
 gh auth login --with-token < ~/.github-token
 gh api repos/sagol/Mdnarra/contents/docs/SETUP.md -H 'Accept: application/vnd.github.raw'
 ```
