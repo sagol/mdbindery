@@ -320,7 +320,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             const angle = t.rotate && t.rotate !== 'none' ? parseFloat(t.rotate.split(/\s+/).pop()) : 0;   // the angle is last, in
             if (Math.abs(((angle % 360) + 360) % 360) > 1e-9 && Math.abs(((angle % 360) + 360) % 360 - 360) > 1e-9   // degrees (Chrome
             // computes turn, grad and rad as deg); a turn of 0
-                || m.length >= 4 && (Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9)) return true;   // or 360deg changes nothing
+                || m.length >= 4 && (Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9 || m[0] < 0 || m[3] < 0)   // or 360deg changes
+                || /^matrix3d/.test(t.transform) || /(^|\s)-/.test(t.scale || '')) return true;   // nothing; a half turn or a
+            // mirror (a negative scale, as a matrix or the scale property) reverses the box, and a 3D matrix cannot be read here
           } return false; };   // and scaled to the page by the transform. Whether any pixel is inside its content box is
           const bw = img.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);   // decided first, in layout
           const bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);   // units, whatever the

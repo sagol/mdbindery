@@ -877,7 +877,10 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; rotate: 0deg; }', 'is hidden in the printed contents'),   # turn,
     ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; transform: rotate(1deg); }', 'is hidden in the printed contents'),
     ('nav#TOC img { rotate: 1turn; object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),
-])   # identity or real, never stands in for pixels outside the box
+] + [(f'nav#TOC a {{ display: inline-block; width: 50px; height: 20px; overflow: hidden; }} nav#TOC img {{ width: 100px; height: '
+      f'40px; object-fit: none; object-position: left top; {turn} }}', 'is hidden in the printed contents')   # the pixels, at the
+     for turn in ('transform: rotate(180deg);', 'transform: scale(-1, -1);', 'scale: -1;', 'transform: rotateY(180deg) rotateX(180deg);')])   # top left, are
+# turned to the bottom right, past the 50 by 20 link; identity or real, a turn never stands in for pixels outside the box
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
