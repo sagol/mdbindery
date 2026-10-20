@@ -477,19 +477,29 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         # extracted text may split a word, so the page is checked by its letters; the element's own words come from the DOM)
         seen = elements.get(part)
         return not seen or bool(seen.get('shows')) and (seen.get('words') is None or holds(seen['words'], want))
+    def cut(part):   # the element prints only part of its text: its words and the page text may hold what is cut off
+        return bool((elements.get(part) or {}).get('cut'))
     front, not_applicable = [], []
     title_page = reader.get_destination_page_number(named[place(TITLE)]) if place(TITLE) in named else None
-    if title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):
+    if cut('title'):   # first: whatever the page text holds of it, part of it does not print
+        front.append('the title is only partly visible on the title page: an element that hides its overflow, or the page edge, cuts it')
+    elif title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):
         front.append('the title is not on the title page')
     if rights:
         page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
-        if page != title_page or normalized(rights) not in texts[title_page or 0] or not drawn('rights', rights):
+        if cut('rights'):
+            front.append('the rights line is only partly visible on the title page: an element that hides its overflow, or the page edge, '
+                         'cuts it')
+        elif page != title_page or normalized(rights) not in texts[title_page or 0] or not drawn('rights', rights):
             front.append('the rights line is not on the title page')
     else:
         not_applicable.append('rights: none configured')
     if has_nav and toc_title:
         page = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
-        if page is None or normalized(toc_title) not in texts[page] or not drawn('contents', toc_title):
+        if cut('contents'):
+            front.append('the contents heading is only partly visible on the first contents page: an element that hides its overflow, '
+                         'or the page edge, cuts it')
+        elif page is None or normalized(toc_title) not in texts[page] or not drawn('contents', toc_title):
             front.append('the contents heading is not on the first contents page')
     else:
         not_applicable.append('contents heading: ' + ('no title for this language' if has_nav else 'contents disabled or pandoc wrote no contents'))

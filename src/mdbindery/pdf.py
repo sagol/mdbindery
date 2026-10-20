@@ -370,7 +370,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const el = document.querySelector(selector);   // draws, generated text included
         if (!el) return null;
         const seen = scan(el);   // its words here include text drawn only as an outline or a shadow, which is visible
-        return {shows: seen.shows, words: seen.runs.map(r => r[0]).join('')};   // (an image's alt text is not)
+        return {shows: seen.shows, words: seen.runs.map(r => r[0]).join(''), cut: seen.cut};   // (an image's alt text is not);
+        // cut: part of its text is cut off, so the page text may hold glyphs that do not print
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};

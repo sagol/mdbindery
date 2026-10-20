@@ -951,11 +951,17 @@ def test_pdf_contents_gate_accepts_list_markers_and_unnumbered_pages(tmp_path, b
     ('header#title-block-header .title { display: none; }', 'Навигация & <тест>', 'the title is not on the title page'),   # its words
     ('header#title-block-header p.rights { visibility: hidden; }', '© 2026', 'the rights line is not on the title page'),   # elsewhere
     ('nav#TOC > h2 { opacity: 0; }', '© 2026', 'the contents heading is not on the first contents page'),
+    ('header#title-block-header .title { width: 30px; overflow: hidden; white-space: nowrap; }', 'Навигация & <тест>',
+     'the title is only partly visible on the title page'),   # its whole text may stay in the page text, cut glyphs included
+    ('header#title-block-header p.rights { width: 12px; overflow: hidden; white-space: nowrap; }', 'All rights reserved 2026',
+     'the rights line is only partly visible on the title page'),
+    ('nav#TOC > h2 { width: 12px; overflow: hidden; white-space: nowrap; }', '© 2026',
+     'the contents heading is only partly visible on the first contents page'),
 ])
 def test_pdf_front_matter_gate_checks_the_elements_themselves(tmp_path, browser, css, rights, problem):
     files = {'01.md': '# First\n\nСодержание.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, rights=rights, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    assert problem in summary['gates']['pdf']['front_matter']['problems'], summary['gates']['pdf']['front_matter']
+    assert any(p.startswith(problem) for p in summary['gates']['pdf']['front_matter']['problems']), summary['gates']['pdf']['front_matter']
 
 
 @needs_pandoc
