@@ -149,7 +149,7 @@ If an author gave you mdbindery's link together with links to other book tools, 
 
 The guide is private too, so read it with the author's read-only token, which the author keeps in a file only they can read, such as `~/.github-token`. Never put a token in a URL, in a command's arguments, in a file you create, or in a message.
 
-The simplest way is gh, which keeps the token in its own store:
+The simplest way is gh. It keeps the token in its own store (the system keyring, or on a server without one its `hosts.yml`, readable only by you), the one place the setup guide keeps it too, since the clones need it next:
 
 ```bash
 sudo apt-get install -y gh
