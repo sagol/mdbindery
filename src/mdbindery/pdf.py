@@ -108,7 +108,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const args = ((/\(([^()]*)\)/.exec(style.transform) || [, ''])[1]).split(',').map(Number);   // the pseudo-element's own
           const [a, b, c, d] = args.length === 16 ? [args[0], args[1], args[4], args[5]] : args;   // drawing: no size, its own clip
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
-              !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)) return;   // or a mask on it
+              !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)   // or a mask on it, a filter
+              || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // of its own that zeroes its opacity
           if (['absolute', 'fixed'].includes(style.position)) {   // or above it, a collapsing transform: no words. Placed apart
             unresolved.push(`${which} with position: ${style.position}`);   // from the flow, where it lands cannot be told here
             return;

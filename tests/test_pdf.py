@@ -483,6 +483,7 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword "; font-size: 0; }', ['Map of Mars today', 'Second']),   # drawn at no size
     ('nav#TOC a::before { content: "Ghostword "; clip-path: inset(50%); }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword "; display: inline-block; transform: scale(0); }', ['Map of Mars today', 'Second']),
+    ('nav#TOC a::before { content: "Ghostword "; filter: opacity(0); }', ['Map of Mars today', 'Second']),   # its own filter
 ])
 def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_path, browser, css, labels):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
