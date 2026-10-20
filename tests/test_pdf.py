@@ -484,6 +484,8 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword "; clip-path: inset(50%); }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword "; display: inline-block; transform: scale(0); }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword "; filter: opacity(0); }', ['Map of Mars today', 'Second']),   # its own filter
+    ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
+     ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
 ])
 def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_path, browser, css, labels):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -692,6 +694,14 @@ def test_pdf_an_image_entry_under_a_boxless_clipping_ancestor_prints(tmp_path, b
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
     summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
+
+
+@needs_pandoc
+def test_pdf_contents_links_carry_no_attribute_the_books_css_could_see(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC a:not([data-mdb-dest]) { display: none; }'   # matches every contents link pandoc wrote
+    with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
 
 
 @needs_pandoc

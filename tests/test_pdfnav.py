@@ -48,10 +48,9 @@ def test_prepare_marks_the_contents_links_and_adds_only_the_rights_line(tmp_path
     assert [(e['depth'], e['key'], e['target']) for e in entries] == [
         (1, 'mdb-dest-1', 'глава'), (2, 'mdb-dest-2', 'with.dot'), (1, 'mdb-dest-3', 'second')]
     assert '<h1 id="глава">Глава <em>первая</em></h1>' in out and '<h2 id="with.dot">Точка</h2>' in out   # nothing inside a heading
-    assert '<a data-mdb-dest="mdb-dest-3" href="#second" id="toc-second">Вторая</a>' in out   # its href, for author CSS, stays
+    assert '<a href="#second" id="toc-second">Вторая</a>' in out   # the contents links stay exactly as pandoc wrote them
     assert '<p class="rights" id="mdb-rights">© 2026 «Автор» &amp; &lt;co&gt;</p></header>' in out
     undone = re.sub(r'<p class="rights" id="mdb-rights">.*?</p>(?=</header>)', '', out)
-    undone = re.sub(r' data-mdb-dest="mdb-dest-\d+"', '', undone)
     assert undone == HTML   # only the marks and the rights line differ
 
 

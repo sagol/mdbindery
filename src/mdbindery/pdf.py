@@ -110,8 +110,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
               !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)   // or a mask on it, a filter
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // of its own that zeroes its opacity
-          if (el.getClientRects().length && !onPage(el.getBoundingClientRect(), el.parentElement)) return;   // its element off the
-          const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // page: neither
+          const host = el.getBoundingClientRect();   // its element wholly off either side of the printable width (its height
+          if (el.getClientRects().length && (host.left >= document.documentElement.clientWidth || host.right < 0)) return;   // may be 0
+          const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // with visible overflow): neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset || style.transform !== 'none') {
             unresolved.push(`${which} moved by position: ${style.position} or a transform`);   // moved apart from the flow,
             return;   // where it lands cannot be told here (a pseudo-element has no box to measure)
@@ -242,8 +243,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       places,
       before,
       front,
-      entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
-        const id = a.getAttribute('data-mdb-dest');
+      entries: Array.from(document.querySelectorAll('nav#TOC a[href^="#"]')).map((a, n) => {   // in the order prepare counted
+        const id = `mdb-dest-${n + 1}`;   // them: the n-th contents link is entry n, marked by nothing in the document
         let target = null;
         try { target = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); } catch (_) {}
         const anchor = place(target);   // the heading itself, or for one with no box the first element in it with a box and an id

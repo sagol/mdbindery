@@ -80,8 +80,8 @@ class _Scan(HTMLParser):
 
 
 def prepare(path, rights):
-    """Rewrite the print HTML once: each contents link marked with its entry's key (its href unchanged), and the rights
-    line, with its own id, before the title block's closing tag. Nothing goes inside a heading or among an author's
+    """Rewrite the print HTML once: the rights line, with its own id, before the title block's closing tag; each contents
+    entry's key is its place among the contents links, which the page counts the same way. Nothing goes inside a heading or among an author's
     elements, so no structural selector of the book's CSS matches differently: the page script chooses each destination at
     print time (the heading itself, or for one with no box the first element in it with one) and adds the hidden links
     Chrome needs after the content. Returns the contents entries, in order, as {'depth', 'key', 'target'}, and whether
@@ -102,10 +102,8 @@ def prepare(path, rights):
         found = scan.ids.get(target)
         if not found or found['tag'] in VOID or found['region']:
             raise BuildError(f'contents entry {n} points to {target!r}, which is not a printable element of the book')
-        key = f'mdb-dest-{n}'
-        raw = link['raw'][:2] + f' data-mdb-dest="{key}"' + link['raw'][2:]   # its href, which author CSS may select by, stays
-        edits.append((link['start'], link['end'], raw))
-        entries.append({'depth': link['depth'], 'key': key, 'target': target})
+        entries.append({'depth': link['depth'], 'key': f'mdb-dest-{n}', 'target': target})   # the link itself is left as it is:
+        # the page finds the n-th contents link by its place, so no attribute a selector of the book's CSS could see is added
     if rights:
         edits.append((scan.header_close, scan.header_close, f'<p class="rights" id="{RIGHTS}">{html.escape(rights)}</p>'))
     for start, end, new in sorted(edits, key=lambda e: (e[0], e[1]), reverse=True):
