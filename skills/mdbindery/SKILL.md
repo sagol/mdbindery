@@ -46,7 +46,7 @@ mdbindery doctor
 `doctor` prints the version, the tool home, and one line per tool:
 
 ```
-mdbindery 0.2.2
+mdbindery 0.2.1
 tool home: /home/you/.local/share/mdbindery (default; set MDBINDERY_HOME to use another)
 --- tools
 pandoc     pandoc 3.11
