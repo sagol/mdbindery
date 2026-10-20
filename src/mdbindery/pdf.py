@@ -107,8 +107,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           };
           const tail = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}]$/u.test(label) ? Array.from(label).pop() : '';
           const out = tail ? read(tail + piece).slice(read(tail).length) : read(piece);   // a word the piece before began goes
-          return piece.trim() && !out.trim() ? piece : out;   // on after a letter or digit (Chrome starts a new one after a
-        };   // combining mark); a probe that reads nothing never erases what the element prints
+          return piece.trim() && !out.trim() ? piece : out;   // on after a letter or digit for capitalize (Chrome starts a new
+        };   // one after a combining mark, and lowercases each piece on its own: <em>Ο</em>Σ prints οσ); a probe that reads
+        // nothing never erases what the element prints
         const add = (piece, alt, outline = false, style = null, el = null) => {   // runs: its printed text in order, each piece
           piece = cased(piece, style, el);   // with whether it is drawn only as an outline (Chrome writes such a piece twice)
           label += piece;
@@ -235,21 +236,31 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             if (/url\(|opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(getComputedStyle(e).filter)) return true;
           return false;
         };
-        const inside = img => {   // its replaced content overlaps its own content box (padding left out), after object-fit
-          const s = getComputedStyle(img), px0 = parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);   // and object-position
-          const bw = img.clientWidth - px0, bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
-          const nw = img.naturalWidth, nh = img.naturalHeight;   // in every mode, fill included; a position that cannot be
-          if (!nw || !nh) return true;   // read (calc()) counts as outside
+        const painted = img => {   // where its pixels print: the rendered object after object-fit and object-position, cut
+          const s = getComputedStyle(img), b = img.getBoundingClientRect();   // to its content box (padding and border left
+          const left = b.left + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft);   // out), in page coordinates; null
+          const top = b.top + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop);   // when nothing of it is inside, or a
+          const bw = img.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);   // position that cannot be read
+          const bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);   // (calc() beyond p% ± qpx)
+          const nw = img.naturalWidth, nh = img.naturalHeight;
+          if (!(bw > 0 && bh > 0)) return null;
+          if (!nw || !nh) return {left, top, right: left + bw, bottom: top + bh};
           const k = {contain: Math.min(bw / nw, bh / nh), cover: Math.max(bw / nw, bh / nh), none: 1,
                      'scale-down': Math.min(1, bw / nw, bh / nh)}[s.objectFit];
           const cw = s.objectFit === 'fill' || k === undefined ? bw : nw * k, ch = s.objectFit === 'fill' || k === undefined ? bh : nh * k;
-          const [px, py = px] = s.objectPosition.split(/\s+/);
-          const at = (v, free) => v.endsWith('%') ? free * parseFloat(v) / 100 : parseFloat(v);
+          const [px, py = px] = s.objectPosition.match(/calc\([^()]*\)|\S+/g);   // computed: lengths, percentages, or
+          const at = (v, free) => {   // calc(p% ± qpx), the form four-value positions take; anything else is not read
+            const c = /^calc\((-?[\d.]+)%\s*([+-])\s*([\d.]+)px\)$/.exec(v);
+            if (c) return free * parseFloat(c[1]) / 100 + (c[2] === '-' ? -1 : 1) * parseFloat(c[3]);
+            return v.endsWith('%') ? free * parseFloat(v) / 100 : /^-?[\d.]+px$/.test(v) ? parseFloat(v) : NaN;
+          };
           const x = at(px, bw - cw), y = at(py, bh - ch);
-          return bw > 0 && bh > 0 && x < bw && x + cw > 0 && y < bh && y + ch > 0;
+          const r = {left: Math.max(left, left + x), top: Math.max(top, top + y),
+                     right: Math.min(left + bw, left + x + cw), bottom: Math.min(top + bh, top + y + ch)};
+          return r.right > r.left && r.bottom > r.top ? r : null;   // NaN compares false: not read, not drawn
         };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
-          && !filtered(img) && inside(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
+          && !filtered(img) && !!painted(img) && onPage(painted(img), img.parentElement);   // an image draws: visible, not
           // transparent, not filtered away (its alt text is no text to find), an area left
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;

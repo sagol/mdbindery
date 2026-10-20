@@ -473,7 +473,11 @@ def test_pdf_an_image_under_a_filter_that_keeps_it_visible_prints(tmp_path, brow
 
 @needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC img { object-fit: none; object-position: left top; }',
-                                 'body > h1 img { width: 40px; object-fit: contain; object-position: 100% 0; }'])
+                                 'body > h1 img { width: 40px; object-fit: contain; object-position: 100% 0; }',
+                                 'nav#TOC img { object-fit: none; object-position: calc(50% + 1px) 50%; }',
+                                 'nav#TOC img { width: 40px; object-fit: none; object-position: right 2px bottom 2px; }',
+                                 'nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } '   # half the image
+                                 'nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding-left: 70px; }'])
 def test_pdf_an_image_whose_content_stays_in_its_box_prints(tmp_path, browser, css):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
@@ -564,6 +568,24 @@ def test_pdf_the_title_element_must_hold_the_title_words_whole(tmp_path, browser
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert not summary['ok'] and 'the title is not on the title page' in summary['gates']['pdf']['front_matter']['problems']
+
+
+@needs_pandoc
+def test_pdf_lowercase_of_separate_pieces_matches_print(tmp_path, browser):
+    files = {'01.md': '# *Ο*Σ\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # Chrome lowercases each piece alone: no final sigma
+    summary = build(nav_book(tmp_path, files, lang='el', css='nav#TOC a { text-transform: lowercase; }'), out_dir=tmp_path / 'out',
+                    output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    reader = PdfReader(summary['pdf'])
+    assert 'οσ' in ''.join(p.extract_text() or '' for p in reader.pages)   # what Chrome printed
+    assert [t for t, _, _ in outline_of(reader)][0] == 'οσ'
+
+
+@needs_pandoc
+def test_pdf_a_rights_line_of_symbols_alone_is_found(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, rights='©'), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'] and summary['gates']['pdf']['front_matter']['result'] == 'pass', summary['gates']['pdf']
 
 
 @needs_pandoc
@@ -760,6 +782,10 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # fill moves too
     ('nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding: 10px; object-fit: none; object-position: 25px 0; }',
      'is hidden in the printed contents'),   # in the padding, outside the content box
+    ('nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } '   # the padding shows inside the clipping link,
+     'nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding-left: 100px; }', 'is hidden in the printed contents'),
+    ('nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding-left: 2000px; margin-left: -500px; }',   # the
+     'is hidden in the printed contents'),   # pixels are past the page while the padding box crosses it
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)

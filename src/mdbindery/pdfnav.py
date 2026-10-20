@@ -316,9 +316,13 @@ def words(text):
 
 
 def holds(text, part):
-    """Whether text holds part's words in order, each whole: «A» is not found in «Map»."""
+    """Whether text holds part's words in order, each whole: «A» is not found in «Map». A part with no word in it (©,
+    !!!) is found by its own characters, spaces aside."""
     want, have = words(part), words(text)
-    return bool(want) and any(have[i:i + len(want)] == want for i in range(len(have) - len(want) + 1))
+    if not want:
+        squeeze = lambda t: ''.join(unicodedata.normalize('NFKC', t or '').split())
+        return bool(squeeze(part)) and squeeze(part) in squeeze(text)
+    return any(have[i:i + len(want)] == want for i in range(len(have) - len(want) + 1))
 
 
 def normalized(text):
