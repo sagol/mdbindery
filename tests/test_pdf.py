@@ -449,12 +449,34 @@ def test_pdf_a_heading_whose_text_is_generated_prints(tmp_path, browser):
 
 
 @needs_pandoc
-def test_pdf_a_marker_print_css_hides_is_not_expected(tmp_path, browser):
-    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
-    css = 'nav#TOC li { visibility: hidden; list-style-type: decimal; } nav#TOC a { visibility: visible; }'   # the links print,
+@pytest.mark.parametrize('css', [
+    'nav#TOC li { visibility: hidden; list-style-type: decimal; } nav#TOC a { visibility: visible; }',   # the links print,
+    'nav#TOC li { list-style-type: decimal; } nav#TOC li::marker { color: transparent; }',   # Chrome still writes these
+])
+def test_pdf_markers_are_expected_as_chrome_writes_them(tmp_path, browser, css):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # the first case's markers do not; the second's
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    assert summary['ok'], summary['gates']['pdf']   # their markers do not
+    assert summary['ok'], summary['gates']['pdf']   # numbers are unseen but in the page text
     assert summary['gates']['pdf']['outline']['not_checked'] == []
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC img { filter: grayscale(1); }', 'body > h1 img { filter: grayscale(1) blur(1px); }'])
+def test_pdf_an_image_under_a_filter_that_keeps_it_visible_prints(tmp_path, browser, css):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
+    Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['Logo', 'Second']
+
+
+@needs_pandoc
+def test_pdf_a_space_of_no_size_stays_out_of_the_bookmark(tmp_path, browser):
+    files = {'01.md': '# *A* *B*\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC li:first-child a { font-size: 0; } nav#TOC em { font-size: 16px; }'   # the contents print «AB»
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['AB', 'Second']
 
 
 @needs_pandoc

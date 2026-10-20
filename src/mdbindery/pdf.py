@@ -160,7 +160,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
-              if (!n.data.trim()) { add(' '); continue; }   // a space that wraps a line may have no box of its own
+              if (!n.data.trim()) {   // a space that wraps a line may have no box of its own; one in an element of no size
+                if (parseFloat(getComputedStyle(n.parentElement).fontSize) > 0) add(' ');   // prints nothing between its
+                continue;   // neighbours
+              }
               const range = document.createRange(), style = getComputedStyle(n.parentElement);
               range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
               if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
@@ -200,10 +203,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return box.right > box.left && box.bottom > box.top && box.right > 0 && box.bottom > 0
             && box.left < document.documentElement.clientWidth;
         };
-        const filtered = el => { for (let e = el; e; e = e.parentElement) if (getComputedStyle(e).filter !== 'none') return true; return false; };
+        const filtered = el => {   // a filter on it or above that clears it (opacity(0)), or an SVG filter whose result cannot be
+          for (let e = el; e; e = e.parentElement)   // told; grayscale, blur and the like still print it
+            if (/url\(|opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(getComputedStyle(e).filter)) return true;
+          return false;
+        };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
           && !filtered(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
-          // transparent, unfiltered (a filter's result cannot be told, and its alt text is no text to find), an area left
+          // transparent, not filtered away (its alt text is no text to find), an area left
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
@@ -211,10 +218,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                 runs};
       };
       const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
-        const li = a.closest('li');   // ::marker string, nothing for a bullet or a marker that does not draw; null where it
+        const li = a.closest('li');   // ::marker string, nothing for a bullet or a marker Chrome does not write; null where it
         if (!li || getComputedStyle(li).display !== 'list-item' || li.closest('nav#TOC') === null) return '';   // cannot be told
-        const drawn = getComputedStyle(li, '::marker');   // hidden, of no size, or in a clear colour: nothing printed before it
-        if (drawn.visibility !== 'visible' || parseFloat(drawn.fontSize) === 0 || alpha(drawn.color) === 0) return '';
+        const drawn = getComputedStyle(li, '::marker');   // hidden or of no size: Chrome writes nothing before it (a clear
+        if (drawn.visibility !== 'visible' || parseFloat(drawn.fontSize) === 0) return '';   // colour still leaves its text)
         const content = drawn.content;
         if (content && content !== 'normal') {
           if (content === 'none') return '';
