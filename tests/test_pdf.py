@@ -443,3 +443,11 @@ def test_pdf_contents_links_without_a_box_of_their_own_still_count_as_printed(tm
     summary = build(nav_book(tmp_path, CHAPTERS, css='nav#TOC a { display: contents; }'), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']
     assert len(outline_of(PdfReader(summary['pdf']))) == 4
+
+
+@needs_pandoc
+def test_pdf_contents_entry_hidden_by_its_href_stops_the_build(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC a[href$="second"] { display: none; }'   # author CSS keyed on the entry's own href
+    with pytest.raises(BuildError, match='«Second» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)

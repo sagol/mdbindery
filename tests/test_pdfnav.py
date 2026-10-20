@@ -47,16 +47,17 @@ def test_prepare_anchors_each_entry_first_in_its_target_and_changes_nothing_else
     assert has_nav
     assert [(e['depth'], e['anchor'], e['target']) for e in entries] == [
         (1, 'mdb-dest-1', 'глава'), (2, 'mdb-dest-2', 'with.dot'), (1, 'mdb-dest-3', 'second')]
-    assert '<h1 id="глава"><span id="mdb-dest-1"></span>Глава <em>первая</em></h1>' in out
-    assert '<h2 id="with.dot"><span id="mdb-dest-2"></span>Точка</h2>' in out
-    assert '<a href="#mdb-dest-3" id="toc-second">Вторая</a>' in out
+    hidden = lambda n: f'<span id="mdb-dest-{n}"></span><a class="mdb-locator" href="#mdb-dest-{n}" style="display:none"></a>'
+    assert f'<h1 id="глава">{hidden(1)}Глава <em>первая</em></h1>' in out
+    assert f'<h2 id="with.dot">{hidden(2)}Точка</h2>' in out
+    assert '<a data-mdb-dest="mdb-dest-3" href="#second" id="toc-second">Вторая</a>' in out   # its href, for author CSS, stays
     assert '<header id="title-block-header"><span id="mdb-title-page"></span><a class="mdb-locator" href="#mdb-title-page" style="display:none"></a>' in out
     assert '<nav id="TOC" role="doc-toc"><span id="mdb-contents-page"></span>' in out
     assert ('<p class="rights"><span id="mdb-rights"></span><a class="mdb-locator" href="#mdb-rights" style="display:none"></a>'
             '© 2026 «Автор» &amp; &lt;co&gt;</p></header>') in out
     undone = re.sub(r'<span id="mdb-[^"]*"></span>|<a class="mdb-locator"[^>]*></a>|<p class="rights">.*?</p>(?=</header>)', '', out)
-    undone = re.sub(r'href="#mdb-dest-\d+"', 'HREF', undone)
-    assert undone == re.sub(r'href="#[^"]*"(?= id="toc-)', 'HREF', HTML)   # only the inserts and the contents hrefs differ
+    undone = re.sub(r' data-mdb-dest="mdb-dest-\d+"', '', undone)
+    assert undone == HTML   # only the inserts differ
 
 
 def test_prepare_without_contents_or_rights_adds_only_the_title_locator(tmp_path):

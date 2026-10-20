@@ -45,8 +45,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       source.querySelectorAll('annotation, script, style').forEach(n => n.remove());
       return {
       text: source.textContent,
-      entries: Array.from(document.querySelectorAll('nav#TOC a[href^="#mdb-dest-"]')).map(a => {
-        const id = a.getAttribute('href').slice(1);
+      entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
+        const id = a.getAttribute('data-mdb-dest');
         const anchor = document.getElementById(id);
         const text = a.cloneNode(true);   // the word gate's extraction rule: no TeX annotation, script or style
         text.querySelectorAll('annotation, script, style').forEach(n => n.remove());

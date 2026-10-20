@@ -82,8 +82,9 @@ def _locator(ident):
 
 
 def prepare(path, rights):
-    """Rewrite the print HTML once: a generated anchor first in each contents entry's target, the entry's link pointed
-    at it, the locators, and the rights line before the title block's closing tag. Returns the contents entries, in
+    """Rewrite the print HTML once: a generated anchor first in each contents entry's target, with a hidden link to it
+    (Chrome writes a destination only for a link target), the entry's link marked with it (its href unchanged), the
+    locators, and the rights line before the title block's closing tag. Returns the contents entries, in
     order, as {'depth', 'anchor', 'target'}, and whether pandoc wrote a contents nav."""
     text = path.read_text(encoding='utf-8')
     scan = _Scan(text)
@@ -101,8 +102,8 @@ def prepare(path, rights):
         if not found or found['tag'] in VOID or found['region']:
             raise BuildError(f'contents entry {n} points to {target!r}, which is not a printable element of the book')
         anchor = f'mdb-dest-{n}'
-        raw = re.sub(r'''href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)''', f'href="#{anchor}"', link['raw'], count=1)
-        edits += [(link['start'], link['end'], raw), (found['end'], found['end'], f'<span id="{anchor}"></span>')]
+        raw = link['raw'][:2] + f' data-mdb-dest="{anchor}"' + link['raw'][2:]   # its href, which author CSS may select by, stays
+        edits += [(link['start'], link['end'], raw), (found['end'], found['end'], _locator(anchor))]   # a hidden link of its own
         entries.append({'depth': link['depth'], 'anchor': anchor, 'target': target})
     edits.append((scan.header, scan.header, _locator(TITLE)))
     if rights:
