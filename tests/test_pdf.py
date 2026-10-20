@@ -679,6 +679,9 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
     ('nav#TOC a::before { content: "Chapter "; display: inline-block; padding-top: 2px; }', ['Chapter Map of Mars today', 'Chapter Second']),
+    ('nav#TOC li:first-child { margin-bottom: 120px; } nav#TOC li:first-child a { display: inline-block; width: 120px; height: 1.3em; '
+     'overflow: clip; overflow-clip-margin: 100px; } nav#TOC li:first-child a::after { content: " and a long generated tail that wraps"; }',
+     ['Map of Mars today and a long generated tail that wraps', 'Second']),   # the wrapped lines fall inside the clip margin
     ('nav#TOC li { height: 160px; overflow: hidden; } nav#TOC a { display: block; } '   # a block prefix whose top margin is already
      'nav#TOC a::before { content: "Chapter "; display: block; margin-top: 100px; }',   # in the layout (collapsed through its link),
      ['Chapter Map of Mars today', 'Chapter Second']),   # all of it inside the clipping item
@@ -736,6 +739,8 @@ def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, bro
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
     'nav#TOC li:first-child { width: 12px; overflow: hidden; white-space: nowrap; }',   # cut by a parent
     'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow: hidden; }',   # its second line cut away
+    'nav#TOC li:first-child a { display: inline-block; height: 4px; line-height: 4px; overflow: hidden; vertical-align: top; }',   # a
+    # central sliver: each edge loses less than half the line, together far more
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: clip; overflow-clip-margin: 2px; white-space: nowrap; }',
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; overflow-clip-margin: 150px; white-space: nowrap; }',
     'nav#TOC li:first-child a { display: inline-block; width: 24px; border-left: 40px solid; overflow: hidden; white-space: nowrap; '
@@ -851,6 +856,8 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }', 'is hidden in the printed contents'),
     ('nav#TOC img { position: absolute; left: 9999px; }', 'is hidden in the printed contents'),   # past the printable width
     ('nav#TOC img { filter: opacity(0); }', 'is hidden in the printed contents'),   # a filter's result cannot be told
+    ('nav#TOC img { width: 1000px; height: 20px; margin-left: -990px; object-fit: none; object-position: 0 0; transform: rotate(1deg); }',
+     'is hidden in the printed contents'),   # turned, its pixels off the page in a box that reaches onto it
     ('body > h1 img { filter: opacity(0); }', "points to a heading that isn't printed"),
     ('nav#TOC img { scale: 0 1; rotate: 45deg; }', 'is hidden in the printed contents'),   # the scale property collapses
     ('body > h1 img { scale: 0 1; rotate: 45deg; }', "points to a heading that isn't printed"),   # it as transform does

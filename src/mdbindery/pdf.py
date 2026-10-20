@@ -176,8 +176,16 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           for (let e = el; e; e = e.parentElement) {   // a clipping box whose content runs past it may cut lines this text wraps
             const st = getComputedStyle(e);   // into; where in it the generated run lands cannot be measured, so it is reported
+            let roomX = 0, roomY = 0;   // how far past its padding box it still paints: with overflow: clip on both axes, the box
+            if (st.overflowX === 'clip' && st.overflowY === 'clip') {   // overflow-clip-margin names, grown by its length
+              const parts = (st.overflowClipMargin || '').trim().split(/\s+/), n = k => parseFloat(st[k]) || 0;
+              const kind = parts.find(t => t.endsWith('-box')), grow = parseFloat(parts.find(t => /^-?[\d.]+px$/.test(t))) || 0;
+              roomX = grow + (kind === 'border-box' ? n('borderRightWidth') : kind === 'content-box' ? -n('paddingRight') : 0);
+              roomY = grow + (kind === 'border-box' ? n('borderBottomWidth') : kind === 'content-box' ? -n('paddingBottom') : 0);
+            }
             if ((st.overflowX !== 'visible' || st.overflowY !== 'visible') && !['inline', 'contents'].includes(st.display)
-                && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)) {
+                && ((st.overflowY !== 'visible' && e.scrollHeight > e.clientHeight + roomY + 1)
+                    || (st.overflowX !== 'visible' && e.scrollWidth > e.clientWidth + roomX + 1))) {
               unresolved.push(`${which} inside an element that cuts off part of its content`);
               return;
             }
@@ -239,8 +247,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
                 cut = cut || lines.some(box => {   // letters cut off at a side, or a line mostly cut away: what of it prints
                   const c = clipped(box, n.parentElement);   // cannot be told from the page text, which may keep the hidden
-                  const h = (box.bottom - box.top) / 2;   // glyphs; a line box that trims only the top or bottom of its letters
-                  return c.left - box.left > 0.5 || box.right - c.right > 0.5 || c.top - box.top > h || box.bottom - c.bottom > h;
+                  const h = (box.bottom - box.top) / 2;   // glyphs; a line box that trims only the tops and bottoms of its letters
+                  return c.left - box.left > 0.5 || box.right - c.right > 0.5 || (c.top - box.top) + (box.bottom - c.bottom) > h;
                 });   // (overflow: hidden with a small line-height) still shows every one
                 outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // only a stroke or a shadow: Chrome may write its
                 add(n.data, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0, style, n.parentElement);
@@ -333,7 +341,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const x = at(px, bw - cw), y = at(py, bh - ch);
           const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(bw, x + cw), y1 = Math.min(bh, y + ch);
           if (!(x1 > x0 && y1 > y0)) return null;   // nothing inside its box (NaN compares false: not read, not drawn)
-          if (skewed(img)) return b;
+          if (skewed(img)) return x0 === 0 && y0 === 0 && x1 === bw && y1 === bh ? b : null;   // turned: its bounds stand for its
+          // pixels only when they fill the whole box; a part of the box cannot be mapped, so it does not count as drawn
           return {left: left + x0 * sx, top: top + y0 * sy, right: left + x1 * sx, bottom: top + y1 * sy};   // the visible part
         };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
