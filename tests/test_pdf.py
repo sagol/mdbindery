@@ -472,6 +472,16 @@ def test_pdf_an_image_under_a_filter_that_keeps_it_visible_prints(tmp_path, brow
 
 
 @needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC img { object-fit: none; object-position: left top; }',
+                                 'body > h1 img { width: 40px; object-fit: contain; object-position: 100% 0; }'])
+def test_pdf_an_image_whose_content_stays_in_its_box_prints(tmp_path, browser, css):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
+    Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+
+
+@needs_pandoc
 def test_pdf_a_space_of_no_size_stays_out_of_the_bookmark(tmp_path, browser):
     files = {'01.md': '# *A* *B*\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'nav#TOC li:first-child a { font-size: 0; } nav#TOC em { font-size: 16px; }'   # the contents print «AB»
@@ -533,6 +543,18 @@ def test_pdf_case_is_read_whatever_hides_the_elements_around_it(tmp_path, browse
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
     assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['FIRST', 'SECOND']
+
+
+@needs_pandoc
+@pytest.mark.parametrize('heading, label', [('<em>e&#x301;</em>clair', 'ÉClair'), ('<strong>a&#x301;</strong>bc', 'ÁBc')])
+def test_pdf_capitalize_after_a_combining_mark_matches_print(tmp_path, browser, heading, label):
+    files = {'01.md': f'# {heading}\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # a decomposed letter in its own element:
+    css = 'nav#TOC a { text-transform: capitalize; }'   # Chrome starts a new word after the mark
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    reader = PdfReader(summary['pdf'])
+    assert label in unicodedata.normalize('NFC', ''.join(p.extract_text() or '' for p in reader.pages))   # what Chrome printed
+    assert unicodedata.normalize('NFC', [t for t, _, _ in outline_of(reader)][0]) == label
 
 
 @needs_pandoc
@@ -723,6 +745,8 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('body > h1 img { filter: opacity(0); }', "points to a heading that isn't printed"),
     ('nav#TOC img { scale: 0 1; rotate: 45deg; }', 'is hidden in the printed contents'),   # the scale property collapses
     ('body > h1 img { scale: 0 1; rotate: 45deg; }', "points to a heading that isn't printed"),   # it as transform does
+    ('nav#TOC img { object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # its content
+    ('body > h1 img { object-fit: none; object-position: 9999px 50%; }', "points to a heading that isn't printed"),   # outside
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)

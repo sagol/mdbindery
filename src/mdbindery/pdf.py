@@ -105,11 +105,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             probe.remove();
             return out;
           };
-          const tail = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}\p{M}]$/u.test(label)   // a word the piece
-            ? Array.from(new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(label)).pop().segment : '';   // before
-          const out = tail ? read(tail + piece).slice(read(tail).length) : read(piece);   // began goes on: its last grapheme
-          return piece.trim() && !out.trim() ? piece : out;   // leads, cut off as Chrome prints it; a probe that reads nothing
-        };   // never erases what the element prints
+          const tail = /\bcapitalize\b/.test(style.textTransform) && /[\p{L}\p{N}]$/u.test(label) ? Array.from(label).pop() : '';
+          const out = tail ? read(tail + piece).slice(read(tail).length) : read(piece);   // a word the piece before began goes
+          return piece.trim() && !out.trim() ? piece : out;   // on after a letter or digit (Chrome starts a new one after a
+        };   // combining mark); a probe that reads nothing never erases what the element prints
         const add = (piece, alt, outline = false, style = null, el = null) => {   // runs: its printed text in order, each piece
           piece = cased(piece, style, el);   // with whether it is drawn only as an outline (Chrome writes such a piece twice)
           label += piece;
@@ -232,8 +231,19 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             if (/url\(|opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(getComputedStyle(e).filter)) return true;
           return false;
         };
+        const inside = img => {   // its replaced content overlaps its own box, after object-fit and object-position; a
+          const s = getComputedStyle(img), bw = img.clientWidth, bh = img.clientHeight;   // position that cannot be read
+          const nw = img.naturalWidth, nh = img.naturalHeight;   // (calc()) counts as outside
+          if (s.objectFit === 'fill' || !nw || !nh) return true;
+          const k = {contain: Math.min(bw / nw, bh / nh), cover: Math.max(bw / nw, bh / nh), none: 1,
+                     'scale-down': Math.min(1, bw / nw, bh / nh)}[s.objectFit] ?? 1;
+          const [px, py = px] = s.objectPosition.split(/\s+/);
+          const at = (v, free) => v.endsWith('%') ? free * parseFloat(v) / 100 : parseFloat(v);
+          const x = at(px, bw - nw * k), y = at(py, bh - nh * k);
+          return x < bw && x + nw * k > 0 && y < bh && y + nh * k > 0;
+        };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
-          && !filtered(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
+          && !filtered(img) && inside(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
           // transparent, not filtered away (its alt text is no text to find), an area left
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
