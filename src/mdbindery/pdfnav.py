@@ -90,9 +90,10 @@ def prepare(path, rights):
     scan = _Scan(text)
     scan.feed(text)
     scan.close()
-    reserved = sorted(i for i in scan.ids if i.startswith('mdb-'))
+    generated = {RIGHTS} | {'mdb-' + ident.lower() for ident in (TITLE, CONTENTS, RIGHTS)}   # ids the PDF's navigation may add
+    reserved = sorted(i for i in scan.ids if i in generated or re.fullmatch(r'mdb-dest-\d+', i))
     if reserved:
-        raise BuildError(f'the book uses the id {reserved[0]!r}; ids starting with mdb- are reserved for the PDF\'s navigation')
+        raise BuildError(f'the book uses the id {reserved[0]!r}, which the PDF\'s navigation adds; rename it')
     if scan.header is None or scan.header_close is None:
         raise BuildError('the print document has no title block (header#title-block-header)')
     edits, entries = [], []
@@ -273,6 +274,9 @@ def finalize(source, target, rows, meta, aliases=None):
         writer.write(out)
 
 
+ENTRY_GAP = 8   # letters and digits allowed between two printed contents entries: a list marker, a page number at a page break
+
+
 def normalized(text):
     """Letters and digits only, NFKC, case-folded: how labels, titles and rights are found in a page's text."""
     return ''.join(c for c in unicodedata.normalize('NFKC', text or '').casefold() if c.isalnum())
@@ -314,26 +318,28 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     named = named_destinations(reader)
     if listed is not None and rows:
         first = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
-        contents, at, last = '', 0, first
+        contents, at, last, anchored = '', 0, first, False
         if first is None:
             problems.append('the contents page has no destination, so its entries cannot be found on it')
-        else:   # the contents pages up to the first listed heading's page, and that page up to the heading itself: the last
-            lead = min(range(len(rows)), key=lambda n: rows[n][2])   # place its own words are on that page (a page the
-            last = max(rows[lead][2], first)   # contents may share with it, when the book's CSS lets the heading follow)
-            mark = normalized(printed[lead]) if printed is not None else ''
-            cut = texts[last].rfind(mark) if mark else -1
-            contents = ''.join(texts[first:last]) + (texts[last][:cut] if cut >= 0 else texts[last])
+        else:   # the contents pages through the first listed heading's page, which the contents may share with it; the entries
+            last = max(min(row[2] for row in rows), first)   # are read as the sequence they print in, each right after the
+            contents = ''.join(texts[first:last + 1])   # one before, so nothing is ever found in the chapter text that follows
+            title = normalized(toc_title)
+            if title and title in contents:
+                at, anchored = contents.index(title) + len(title), True
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
             if not want:
                 skipped.append(f'«{label}»: no printed words in the contents to find')
                 continue
             where = contents.find(want, at)
+            if where >= 0 and anchored and where - at > ENTRY_GAP:   # not where it prints: further on, in other text
+                where = -1
             if where < 0:
                 pages = f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
                 problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
             else:
-                at = where + len(want)
+                at, anchored = where + len(want), True
     for index, page in enumerate(reader.pages):   # every printed contents link goes where its bookmark goes
         for raw, name in _link_names(page) if links else ():
             if name in links:

@@ -54,7 +54,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         for (let e = el; e; e = e.parentElement) {
           const t = getComputedStyle(e).transform;
           if (!t || t === 'none') continue;
-          const m = (t.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number);
+          const m = ((/\(([^()]*)\)/.exec(t) || [, ''])[1]).split(',').map(Number);   // the arguments, not the 3 in matrix3d
           const [a, b, c, d] = m.length === 16 ? [m[0], m[1], m[4], m[5]] : m;
           if (Math.abs(a * d - b * c) < 1e-9) return true;
         }

@@ -596,6 +596,26 @@ def test_pdf_contents_gate_reads_a_last_contents_page_the_first_chapter_shares(t
 
 
 @needs_pandoc
+def test_pdf_contents_gate_never_finds_a_hidden_entry_in_the_chapter_text_after_it(tmp_path, browser):
+    files = {f'{n:02}.md': f'# Chapter{"abcdefgh"[n]}word\n\nText.\n' for n in range(8)}
+    files['00.md'] = '# Chapterqword\n\nThe Chapterhword is told later, after Chapterqword ends.\n'   # the hidden entry's words on
+    # the shared page, and the first heading's words again after them, where a cut at their last occurrence would land
+    files['07.md'] = '# Chapterhword\n\nText.\n'
+    css = ('nav#TOC li { font-size: 90px; line-height: 1.6; } nav#TOC { break-after: auto !important; } '
+           'h1:not(.title) { break-before: auto !important; } nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }')
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']
+    assert not summary['ok'] and any('«Chapterhword» is not in the printed contents text' in p for p in outline['problems']), outline
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['body > h1 { transform: translateZ(1px); }', 'nav#TOC a { display: inline-block; transform: translateZ(1px); }'])
+def test_pdf_a_3d_transform_that_keeps_its_area_draws(tmp_path, browser, css):
+    summary = build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+
+
+@needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC li:first-child a { font-size: 0; }',
                                  'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
                                  'nav#TOC li:first-child a { position: absolute; left: -9999px; }'])
