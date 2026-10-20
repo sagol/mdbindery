@@ -485,6 +485,10 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         front.append('the title is only partly visible on the title page: an element that hides its overflow, or the page edge, cuts it')
     elif title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):
         front.append('the title is not on the title page')
+    else:   # the whole title block is on that page: every word it draws (author, date, abstract) is in the page's text
+        away = [w for w in ((elements.get('block') or {}).get('words') or '').split() if normalized(w) and normalized(w) not in texts[title_page]]
+        if away:
+            front.append(f'the title block does not fit on the title page: «{away[0]}» prints on another page')
     if rights:
         page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
         if cut('rights'):

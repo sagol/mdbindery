@@ -317,8 +317,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const skewed = e => { for (; e; e = e.parentElement) {   // out), in page coordinates; null when nothing of it is
             const t = getComputedStyle(e);   // inside, or a position that cannot be read (calc() beyond p% ± qpx). The box is
             const m = ((/\(([^()]*)\)/.exec(t.transform) || [, ''])[1]).split(',').map(Number);   // measured in layout units
-            const angle = t.rotate && t.rotate !== 'none' ? parseFloat(t.rotate.split(/\s+/).pop()) : 0;   // the angle is last;
-            if (Math.abs(((angle % 360) + 360) % 360) > 1e-9 && Math.abs(((angle % 360) + 360) % 360 - 360) > 1e-9   // a turn of 0
+            const angle = t.rotate && t.rotate !== 'none' ? parseFloat(t.rotate.split(/\s+/).pop()) : 0;   // the angle is last, in
+            if (Math.abs(((angle % 360) + 360) % 360) > 1e-9 && Math.abs(((angle % 360) + 360) % 360 - 360) > 1e-9   // degrees (Chrome
+            // computes turn, grad and rad as deg); a turn of 0
                 || m.length >= 4 && (Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9)) return true;   // or 360deg changes nothing
           } return false; };   // and scaled to the page by the transform. Whether any pixel is inside its content box is
           const bw = img.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);   // decided first, in layout
@@ -399,6 +400,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         // cut: part of its text is cut off, so the page text may hold glyphs that do not print
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
+                     block: element('header#title-block-header'),   // the whole title block: every word of it on the title page
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};
       const entries = Array.from(document.querySelectorAll('nav#TOC a[href^="#"]')).map((a, n) => {   // in the order prepare counted
         const id = `mdb-dest-${n + 1}`;   // them: the n-th contents link is entry n, marked by nothing in the document

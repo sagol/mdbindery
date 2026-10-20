@@ -876,6 +876,7 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { rotate: 0deg; object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # a
     ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; rotate: 0deg; }', 'is hidden in the printed contents'),   # turn,
     ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; transform: rotate(1deg); }', 'is hidden in the printed contents'),
+    ('nav#TOC img { rotate: 1turn; object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),
 ])   # identity or real, never stands in for pixels outside the box
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -975,7 +976,8 @@ def test_pdf_contents_gate_accepts_list_markers_and_unnumbered_pages(tmp_path, b
      'the rights line is only partly visible on the title page'),
     ('nav#TOC > h2 { width: 12px; overflow: hidden; white-space: nowrap; }', '© 2026',
      'the contents heading is only partly visible on the first contents page'),
-])
+    ('header#title-block-header .author { break-before: page; }', '', 'the title block does not fit on the title page'),   # no
+])   # rights line to show it
 def test_pdf_front_matter_gate_checks_the_elements_themselves(tmp_path, browser, css, rights, problem):
     files = {'01.md': '# First\n\nСодержание.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, rights=rights, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
@@ -1009,6 +1011,17 @@ def test_pdf_custom_list_counters_leave_the_contents_text_unchecked(tmp_path, br
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']
     assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
+
+
+@needs_pandoc
+@pytest.mark.parametrize('turn', ['1turn', '400grad'])   # Chrome computes both as 360deg
+def test_pdf_an_identity_turn_in_any_unit_leaves_a_partly_clipped_image_drawn(tmp_path, browser, turn):
+    css = ('nav#TOC a { display: inline-block; width: 50px; overflow: hidden; } '   # the box is cut at 50px, the pixels at 0-20px
+           f'nav#TOC img {{ width: 100px; height: 40px; object-fit: none; object-position: left top; rotate: {turn}; }}')
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
+    Image.new('RGB', (20, 20), 'blue').save(book.base / 'logo.png')
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
 
 
 @needs_pandoc
