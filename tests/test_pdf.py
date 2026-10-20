@@ -526,6 +526,19 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
 
 
 @needs_pandoc
+@pytest.mark.parametrize('css', [
+    'nav#TOC li:first-child { height: 0; overflow: hidden; }',
+    'nav#TOC li::marker { content: counter(list-item) ". "; } nav#TOC li:first-child { height: 0; overflow: hidden; }',   # a marker
+    'nav#TOC li:first-child a { display: block; height: 0; overflow: hidden; }',   # that skips the contents text check
+])
+def test_pdf_generated_text_inside_a_clipped_entry_does_not_list_it(tmp_path, browser, css):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css += ' nav#TOC a::before { content: "Chapter "; }'
+    with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC li:first-child a { opacity: 0; }', 'nav#TOC li:first-child { opacity: 0; }',
                                  'nav#TOC li:first-child a { color: transparent; }', 'nav#TOC li:first-child a { color: rgb(0 0 0 / 0%); }',
                                  'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; }',
@@ -702,6 +715,19 @@ def test_pdf_contents_links_carry_no_attribute_the_books_css_could_see(tmp_path,
     css = 'nav#TOC a:not([data-mdb-dest]) { display: none; }'   # matches every contents link pandoc wrote
     with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
         build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, ok', [('html:has(head > a) body { color: red; }', False),   # the hidden links turn the text red
+                                     ('html:has(head > a) body { cursor: pointer; }', True)])   # nothing printed changes
+def test_pdf_css_that_sees_the_locator_links_must_print_the_same(tmp_path, browser, css, ok):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    book = nav_book(tmp_path, files, lang='en-US', css=css)
+    if ok:
+        assert build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)['ok']
+    else:
+        with pytest.raises(BuildError, match='hidden navigation links to the document head \\(page \\d+\\)'):
+            build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
 
 
 @needs_pandoc

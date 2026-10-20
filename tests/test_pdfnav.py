@@ -215,6 +215,32 @@ def test_destination_names_are_normalized_by_their_pdf_type():
     assert pdfnav.named_destinations(Reader()) == {'mdb-dest-1': 'a', 'гл': 'b', 'with.dot': 'c'}
 
 
+def test_an_alias_finds_chromes_encoded_destination_name(tmp_path):
+    source, final = tmp_path / 'chrome.pdf', tmp_path / 'final.pdf'
+    make_pdf(source, [['Contents'], ['Chapter']], [('%D1%82%20x', (1, 700))])   # the anchor's id is «т x»
+    writer = PdfWriter(clone_from=PdfReader(source))
+    link = DictionaryObject({NameObject('/Type'): NameObject('/Annot'), NameObject('/Subtype'): NameObject('/Link'),
+                             NameObject('/Rect'): ArrayObject([NumberObject(v) for v in (72, 700, 200, 720)]),
+                             NameObject('/Dest'): NameObject('/second')})   # the printed contents link to the heading
+    writer.pages[0][NameObject('/Annots')] = ArrayObject([writer._add_object(link)])
+    with open(source, 'wb') as out:
+        writer.write(out)
+    pdfnav.finalize(source, final, [], META, aliases={'second': 'т x'})
+    named = pdfnav.named_destinations(PdfReader(final))
+    assert PdfReader(final).get_destination_page_number(named['second']) == 1
+
+
+def test_the_print_without_locator_links_must_match_page_for_page(tmp_path):
+    a, b, c, d = (tmp_path / f'{n}.pdf' for n in 'abcd')
+    make_pdf(a, [['One'], ['Two']], [(pdfnav.TITLE, (0, 700))])   # destinations alone are no difference
+    make_pdf(b, [['One'], ['Two']])
+    make_pdf(c, [['One'], ['Two!']])
+    make_pdf(d, [['One']])
+    assert pdfnav.changed_page(a, b) is None
+    assert pdfnav.changed_page(a, c) == 2
+    assert pdfnav.changed_page(a, d) == 0
+
+
 def test_a_wrong_metadata_field_fails_the_metadata_gate(tmp_path):
     final, rows, _ = built(tmp_path)
     assert pdfnav.gates(final, rows, dict(META, title='Another'), 'Contents', True, META['rights'])[2]['result'] == 'fail'

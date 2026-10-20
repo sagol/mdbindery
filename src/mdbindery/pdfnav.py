@@ -7,6 +7,7 @@ is the first element inside that has one, given an id only where it has none. Th
 rights line are placed the same way, from their own ids. Chrome writes a destination only for a link target, so hidden
 links to each (no annotation, tag or text) go in the document's head, where Chrome still finds them; no element is
 put in the body, where a structural selector of the book's CSS could match it."""
+import hashlib
 import html
 import re
 import unicodedata
@@ -142,15 +143,51 @@ def join_entries(entries, page):
     return out
 
 
-def named_destinations(reader):
-    """Named destinations by name: a NameObject key loses its leading slash once, a text string is taken as it is, and
-    either is then URL-decoded, as Chrome percent-encodes the link fragment."""
+def _decoded(key):
+    """A destination's name: a NameObject key loses its leading slash once, a text string is taken as it is, and either is
+    then URL-decoded, as Chrome percent-encodes the link fragment."""
     from pypdf.generic import NameObject
-    out = {}
-    for key, dest in reader.named_destinations.items():
-        name = str(key)[1:] if isinstance(key, NameObject) else str(key)
-        out[urllib.parse.unquote(name)] = dest
-    return out
+    return urllib.parse.unquote(str(key)[1:] if isinstance(key, NameObject) else str(key))
+
+
+def named_destinations(reader):
+    """Named destinations by their decoded names."""
+    return {_decoded(key): dest for key, dest in reader.named_destinations.items()}
+
+
+def _drawing(obj, memo, depth=0):
+    """A comparable digest of what a page object draws: dictionaries and arrays by their items, streams by their decoded
+    bytes, indirect objects resolved once each; parents and page back-references are left out."""
+    from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, StreamObject
+    if isinstance(obj, IndirectObject):
+        key = (obj.idnum, obj.generation)
+        if key not in memo:
+            memo[key] = None   # a cycle reads as itself
+            memo[key] = _drawing(obj.get_object(), memo, depth + 1)
+        return memo[key]
+    if isinstance(obj, StreamObject):
+        items = tuple(sorted((str(k), _drawing(v, memo, depth + 1)) for k, v in obj.items()
+                             if k not in ('/Length', '/Filter', '/DecodeParms')))
+        return hashlib.sha256(repr(items).encode() + obj.get_data()).hexdigest()
+    if isinstance(obj, DictionaryObject):
+        return tuple(sorted((str(k), _drawing(v, memo, depth + 1)) for k, v in obj.items() if k not in ('/Parent', '/P')))
+    if isinstance(obj, ArrayObject):
+        return tuple(_drawing(v, memo, depth + 1) for v in obj)
+    return repr(obj)
+
+
+def changed_page(with_links, without):
+    """The first page (from 1) Chrome printed differently with the hidden locator links in the head than without them, 0
+    when the page counts differ, or None when every page is the same: contents, resources, annotations and boxes."""
+    from pypdf import PdfReader
+    one, two = PdfReader(with_links, strict=True), PdfReader(without, strict=True)
+    if len(one.pages) != len(two.pages):
+        return 0
+    memo_one, memo_two = {}, {}
+    for n, (a, b) in enumerate(zip(one.pages, two.pages), 1):
+        if _drawing(a, memo_one) != _drawing(b, memo_two):
+            return n
+    return None
 
 
 def _fit(dest):
@@ -254,10 +291,11 @@ def finalize(source, target, rows, meta, aliases=None):
         del root['/Outlines']
     dests = root.get('/Dests')
     dests = dests.get_object() if dests is not None else None
-    for page in writer.pages if aliases and dests is not None else ():
+    keys = {_decoded(key): key for key in dests} if aliases and dests is not None else {}   # Chrome's keys, encoded
+    for page in writer.pages if keys else ():
         for raw, name in _link_names(page):
-            anchor = NameObject('/' + aliases[name]) if name in aliases else None
-            if isinstance(raw, NameObject) and raw not in dests and anchor in dests:
+            anchor = keys.get(aliases[name]) if name in aliases else None
+            if isinstance(raw, NameObject) and raw not in dests and anchor is not None:
                 dests[raw] = dests[anchor]
     parents = []
     for label, depth, page, typ, args in rows:

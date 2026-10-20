@@ -44,8 +44,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       const source = document.body.cloneNode(true);
       source.querySelectorAll('annotation, script, style').forEach(n => n.remove());
       const hide = id => {   // Chrome writes a destination only for a link target, and finds the links in the whole document:
-        const link = document.createElement('a');   // these go in the head, which is never rendered or styled, so no
-        link.className = 'mdb-locator';             // selector of the book's CSS matches anything differently
+        const link = document.createElement('a');   // these go in the head, which is never rendered; a selector that sees
+        link.className = 'mdb-locator';             // them (:has() on html or head) could still change the print, so the page
+                                                    // is printed again without them and the two must match
         link.setAttribute('href', '#' + id);
         link.style.display = 'none';
         document.head.append(link);
@@ -110,9 +111,12 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
               !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)   // or a mask on it, a filter
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // of its own that zeroes its opacity
-          const host = el.getBoundingClientRect();   // its element wholly off either side of the printable width (its height
-          if (el.getClientRects().length && (host.left >= document.documentElement.clientWidth || host.right < 0)) return;   // may be 0
-          const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // with visible overflow): neither
+          let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
+          while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
+          const r = box && box.getBoundingClientRect(), size = parseFloat(style.fontSize);   // of no height still prints its
+          if (r && !onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // overflow; then clipped by it
+                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // and above
+          const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset || style.transform !== 'none') {
             unresolved.push(`${which} moved by position: ${style.position} or a transform`);   // moved apart from the flow,
             return;   // where it lands cannot be told here (a pseudo-element has no box to measure)
@@ -270,11 +274,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       throw new Error('PDF resources or internal links failed: ' + JSON.stringify({
         resources: Array.from(failures), images: documentState.brokenImages,
         fonts: documentState.brokenFonts, links: documentState.brokenLinks}));
-    await page.pdf({path: jobs.output, format: jobs.page_size, printBackground: true,
+    const print = path => page.pdf({path, format: jobs.page_size, printBackground: true,
       margin: {top: jobs.margin, bottom: jobs.margin, left: jobs.margin, right: jobs.margin},
       displayHeaderFooter: jobs.page_numbers, headerTemplate: '<span></span>',
       footerTemplate: '<div style="font-size:9px;text-align:center;width:100%"><span class="pageNumber"></span></div>',
       timeout: 120000});
+    await print(jobs.output);
+    await page.evaluate(() => document.head.querySelectorAll('a.mdb-locator').forEach(n => n.remove()));
+    await print(jobs.reference);   // the book as its own CSS prints it, with nothing of mdbindery's in the head
     fs.writeFileSync(jobs.text, documentState.text, 'utf8');
     fs.writeFileSync(jobs.entries, JSON.stringify({entries: documentState.entries, places: documentState.places,
       before: documentState.before, front: documentState.front}), 'utf8');
@@ -405,11 +412,12 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     entries_file = work / 'pdf-entries.json'
     temporary = destination.with_name(f'{destination.name}.{os.getpid()}.part')
     final = destination.with_name(f'{destination.name}.{os.getpid()}.final.part')
+    reference = destination.with_name(f'{destination.name}.{os.getpid()}.reference.part')
     # Explicit opt-out only. A failed sandbox or remembered Mermaid fallback never downgrades PDF silently.
     args = ['--no-sandbox'] if os.environ.get('MDBINDERY_NO_SANDBOX') else []
     if args:
         log('  warning: PDF browser sandbox disabled by MDBINDERY_NO_SANDBOX')
-    jobs = {'html': str(html_file), 'output': str(temporary), 'text': str(text_file), 'entries': str(entries_file),
+    jobs = {'html': str(html_file), 'output': str(temporary), 'reference': str(reference), 'text': str(text_file), 'entries': str(entries_file),
             'files': [str(p) for p in [html_file, pdf_css, print_css, *staged.values()]],
             'args': args, 'page_size': settings['page_size'], 'page_numbers': settings['page_numbers'],
             'margin': f'{settings["margin_mm"]}mm', 'locators': [pdfnav.TITLE, pdfnav.CONTENTS, pdfnav.RIGHTS]}
@@ -424,6 +432,11 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         entries, places = pdfnav.join_entries(entries, reported['entries']), reported['places']
         try:
             from pypdf import PdfReader, __version__ as pypdf_version
+            changed = pdfnav.changed_page(temporary, reference)
+            if changed is not None:
+                raise BuildError('PDF: the book\'s CSS prints differently when mdbindery adds its hidden navigation links to '
+                                 'the document head (' + (f'page {changed}' if changed else 'the page count') + '): a selector '
+                                 'sees them, such as :has() on html or head, or a sibling selector there; remove it')
             rows, _ = pdfnav.project(PdfReader(temporary, strict=True), entries, has_nav, rights, places)
             pdfnav.finalize(temporary, final, rows, meta, aliases={e['target']: e['anchor'] for e in entries})
         except BuildError:
@@ -441,6 +454,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     finally:
         temporary.unlink(missing_ok=True)
         final.unlink(missing_ok=True)
+        reference.unlink(missing_ok=True)
     browser['pypdf'] = pypdf_version
     log(f'  PDF: {check["pages"]} pages; {check["missing_words"]} missing words from rendered HTML; '
         f'outline {outline["result"]} ({len(rows)} entries), front matter {front_matter["result"]}, metadata {metadata["result"]}')
