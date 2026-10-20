@@ -394,7 +394,8 @@ def test_pdf_repeated_titles_and_two_headings_on_one_page_keep_their_own_destina
 
 @needs_pandoc
 def test_pdf_display_contents_heading_gets_its_bookmark(tmp_path, browser):
-    summary = build(nav_book(tmp_path, CHAPTERS, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
+    chapters = dict(CHAPTERS, **{'02.md': CHAPTERS['02.md'].replace('# Вторая глава', '# Вторая *глава*')})   # an element in it
+    summary = build(nav_book(tmp_path, chapters, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
                     output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']
     reader = PdfReader(summary['pdf'])
@@ -403,7 +404,34 @@ def test_pdf_display_contents_heading_gets_its_bookmark(tmp_path, browser):
     named = {urllib.parse.unquote(str(k)[1:]): v for k, v in reader.named_destinations.items()}
     contents = next(i for i, p in enumerate(reader.pages) if 'Первая глава' in (p.extract_text() or ''))
     targets = [urllib.parse.unquote(str(a.get_object()['/Dest'])[1:]) for a in reader.pages[contents]['/Annots']]
+    targets = list(dict.fromkeys(targets))   # a link with an element in it gets one annotation per inline part
     assert [reader.get_destination_page_number(named[t]) for t in targets] == [page for _, _, page in found]   # every printed link opens its bookmark's page
+
+
+@needs_pandoc
+def test_pdf_display_contents_heading_with_nothing_boxed_in_it_stops_the_build(tmp_path, browser):
+    with pytest.raises(BuildError, match='«Вторая глава» points to a heading with no box of its own'):
+        build(nav_book(tmp_path, CHAPTERS, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
+              output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_display_contents_heading_keeps_its_elements_in_order(tmp_path, browser):
+    files = {'01.md': '# Map *Ofword* **Mars** today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'body > h1:nth-of-type(1) { display: contents; } body > h1 > :first-child { display: none; }'   # nothing put before em
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    reader = PdfReader(summary['pdf'])
+    first = next(page for _, _, page in outline_of(reader))
+    assert 'mapmarstoday' in pdfnav.normalized(reader.pages[first].extract_text())
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['header#title-block-header { display: contents; }', 'nav#TOC { display: contents; }'])
+def test_pdf_front_matter_without_a_box_of_its_own_is_still_found(tmp_path, browser, css):
+    summary = build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert summary['gates']['pdf']['front_matter']['result'] == 'pass'
 
 
 @needs_pandoc
@@ -500,6 +528,8 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
                                  'nav#TOC li:first-child a { color: transparent; }', 'nav#TOC li:first-child a { color: rgb(0 0 0 / 0%); }',
                                  'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; }',
                                  'nav#TOC li:first-child a { color: color(display-p3 1 0 1 / 0); }',
+                                 'nav#TOC li:first-child a { display: inline-block; transform: scale(0); }',
+                                 'nav#TOC li:first-child a { display: inline-block; transform: rotate(45deg) scaleX(0); }',
                                  'nav#TOC li:first-child a { color: oklch(0.5 0.1 120 / 0); }'])
 def test_pdf_contents_entry_drawn_invisibly_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -532,7 +562,9 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
 @needs_pandoc
 @pytest.mark.parametrize('css, message', [
     ('body > h1 img { display: none; }', "points to a heading that isn't printed"),   # the heading's only content gone
+    ('body > h1 img { transform: rotate(45deg) scaleX(0); }', "points to a heading that isn't printed"),   # no area, a box left
     ('nav#TOC img { transform: scale(0); }', 'is hidden in the printed contents'),   # the entry's only content drawn at no size
+    ('nav#TOC img { transform: rotate(45deg) scaleX(0); }', 'is hidden in the printed contents'),
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -550,8 +582,21 @@ def test_pdf_heading_drawn_invisibly_is_not_printed(tmp_path, browser):
 
 
 @needs_pandoc
+def test_pdf_contents_gate_reads_a_last_contents_page_the_first_chapter_shares(tmp_path, browser):
+    files = {f'{n:02}.md': f'# Chapter{"abcdefgh"[n]}word\n\nText.\n' for n in range(8)}
+    css = ('nav#TOC li { font-size: 90px; line-height: 1.6; } nav#TOC { break-after: auto !important; } '
+           'h1:not(.title) { break-before: auto !important; }')   # a two-page contents the first chapter follows on its last page
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    reader = PdfReader(summary['pdf'])
+    first_heading = min(page for _, _, page in outline_of(reader))
+    contents = pdfnav.named_destinations(reader)[pdfnav.CONTENTS]
+    assert first_heading > reader.get_destination_page_number(contents)   # the contents runs onto the first chapter's page
+    assert 'chapterhword' in pdfnav.normalized(reader.pages[first_heading].extract_text()).split('chapterawordtext')[0]
+    assert summary['ok'], summary['gates']['pdf']['outline']
+
+
+@needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC li:first-child a { font-size: 0; }',
-                                 'nav#TOC li:first-child a { display: inline-block; transform: scale(0); }',
                                  'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
                                  'nav#TOC li:first-child a { position: absolute; left: -9999px; }'])
 def test_pdf_outline_gate_finds_each_entry_in_the_printed_contents(tmp_path, browser, css):
@@ -559,7 +604,7 @@ def test_pdf_outline_gate_finds_each_entry_in_the_printed_contents(tmp_path, bro
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']
     assert not summary['ok'] and outline['result'] == 'fail'
-    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (page 3); CSS may keep it out of print']
+    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (pages 3–4); CSS may keep it out of print']
 
 
 @needs_pandoc

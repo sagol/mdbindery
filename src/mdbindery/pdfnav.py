@@ -1,11 +1,12 @@
 """PDF navigation and metadata: the contents links marked and the rights line added in the print HTML, then the outline,
 Info and XMP written into Chrome's PDF, and the gates that check them in the final file.
 
-The outline holds exactly pandoc's contents (nav#TOC). Each entry's destination is its heading, made at print time by
-the page script; a heading with no box of its own (display: contents), for which Chrome writes no destination, gets an
-empty span first in it. The title block, the contents nav and the rights line are found by their own ids. Chrome writes
-a destination only for a link target, so hidden links to each (no annotation, tag or text) follow the book's content;
-nothing is put among an author's elements, where a structural selector of the book's CSS could match it."""
+The outline holds exactly pandoc's contents (nav#TOC). Each entry's destination is its heading, chosen at print time by
+the page script; for an element with no box of its own (display: contents), for which Chrome writes no destination, it
+is the first element inside that has one, given an id only where it has none. The title block, the contents nav and the
+rights line are placed the same way, from their own ids. Chrome writes a destination only for a link target, so hidden
+links to each (no annotation, tag or text) follow the book's content; no element is put among an author's, where a
+structural selector of the book's CSS could match it."""
 import html
 import re
 import unicodedata
@@ -81,8 +82,8 @@ class _Scan(HTMLParser):
 def prepare(path, rights):
     """Rewrite the print HTML once: each contents link marked with its entry's key (its href unchanged), and the rights
     line, with its own id, before the title block's closing tag. Nothing goes inside a heading or among an author's
-    elements, so no structural selector of the book's CSS matches differently: the page script makes each destination at
-    print time, from the heading itself, or for a heading with no box an empty span first in it, and adds the hidden links
+    elements, so no structural selector of the book's CSS matches differently: the page script chooses each destination at
+    print time (the heading itself, or for one with no box the first element in it with one) and adds the hidden links
     Chrome needs after the content. Returns the contents entries, in order, as {'depth', 'key', 'target'}, and whether
     pandoc wrote a contents nav."""
     text = path.read_text(encoding='utf-8')
@@ -124,6 +125,10 @@ def join_entries(entries, page):
         if not seen.get('listed', True):
             raise BuildError(f"contents entry «{named}» is hidden in the printed contents, so the bookmarks would "
                              'not match it; show it there, or keep its heading out of the contents with a lower options.toc_depth')
+        if seen.get('placeless'):
+            raise BuildError(f"contents entry «{named}» points to a heading with no box of its own and no element in it that has one "
+                             '(display: contents), so its bookmark has nowhere to open; give the heading a box, or keep it out of the '
+                             'contents with a lower options.toc_depth')
         if seen.get('unresolved'):
             raise BuildError(f"contents entry «{named}» shows text that print CSS generates with {', '.join(seen['unresolved'])}, which "
                              'the bookmark cannot repeat; write that text into the heading, or generate only strings and attr() there')
@@ -156,10 +161,13 @@ def _fit(dest):
     return typ, tuple(args)
 
 
-def project(reader, entries, has_nav, rights):
+def project(reader, entries, has_nav, rights, places=None):
     """The outline to write, as (label, depth, page index, fit type, fit arguments) per entry, from each anchor's
-    destination, and the locators' pages. A missing destination is a finalization error."""
+    destination, and the locators' pages. places maps a locator's id to the element its destination was written for (the
+    page reports it: the first element with a box inside a display: contents one). A missing destination is a
+    finalization error."""
     named = named_destinations(reader)
+    place = lambda ident: (places or {}).get(ident, ident)
     rows, open_depths = [], []
     for e in entries:
         dest = named.get(e['anchor'])
@@ -172,9 +180,9 @@ def project(reader, entries, has_nav, rights):
     pages = {}
     for ident, wanted in ((TITLE, True), (RIGHTS, bool(rights)), (CONTENTS, has_nav)):
         if wanted:
-            if ident not in named:
+            if place(ident) not in named:
                 raise BuildError(f'Chrome wrote no destination for the {ident} locator')
-            pages[ident] = reader.get_destination_page_number(named[ident])
+            pages[ident] = reader.get_destination_page_number(named[place(ident)])
     return rows, pages
 
 
@@ -280,7 +288,7 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None):
+def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
     entry's heading words, which the page check looks for on its destination page (a bookmark label may also name an image
     by its alt text); listed holds the words each entry shows in the contents, which must be in the contents pages' own
@@ -288,6 +296,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     from pypdf import PdfReader
     import xml.etree.ElementTree as ElementTree
     reader = PdfReader(path, strict=True)
+    place = lambda ident: (places or {}).get(ident, ident)   # the element each locator's destination was written for
     texts = [normalized(p.extract_text() or '') for p in reader.pages]
     problems, skipped = [], []
     found = _flat(reader, reader.outline)
@@ -304,11 +313,16 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
             problems.append(f'«{label}» does not begin on its destination page {page + 1}')
     named = named_destinations(reader)
     if listed is not None and rows:
-        first = reader.get_destination_page_number(named[CONTENTS]) if CONTENTS in named else None
-        end = max(min(row[2] for row in rows), first + 1) if first is not None else None   # up to the first listed heading's page
-        contents, at = ''.join(texts[first:end]) if first is not None else '', 0
+        first = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
+        contents, at, last = '', 0, first
         if first is None:
             problems.append('the contents page has no destination, so its entries cannot be found on it')
+        else:   # the contents pages up to the first listed heading's page, and that page up to the heading itself: the last
+            lead = min(range(len(rows)), key=lambda n: rows[n][2])   # place its own words are on that page (a page the
+            last = max(rows[lead][2], first)   # contents may share with it, when the book's CSS lets the heading follow)
+            mark = normalized(printed[lead]) if printed is not None else ''
+            cut = texts[last].rfind(mark) if mark else -1
+            contents = ''.join(texts[first:last]) + (texts[last][:cut] if cut >= 0 else texts[last])
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
             if not want:
@@ -316,7 +330,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                 continue
             where = contents.find(want, at)
             if where < 0:
-                pages = f'page {first + 1}' if end == first + 1 else f'pages {first + 1}–{end}'
+                pages = f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
                 problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
             else:
                 at = where + len(want)
@@ -328,17 +342,17 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                     problems.append(f'the contents link to {name!r} on page {index + 1} does not open its heading\'s page')
     outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
     front, not_applicable = [], []
-    title_page = reader.get_destination_page_number(named[TITLE]) if TITLE in named else None
+    title_page = reader.get_destination_page_number(named[place(TITLE)]) if place(TITLE) in named else None
     if title_page is None or normalized(meta['title']) not in texts[title_page]:
         front.append('the title is not on the title page')
     if rights:
-        page = reader.get_destination_page_number(named[RIGHTS]) if RIGHTS in named else None
+        page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
         if page != title_page or normalized(rights) not in texts[title_page or 0]:
             front.append('the rights line is not on the title page')
     else:
         not_applicable.append('rights: none configured')
     if has_nav and toc_title:
-        page = reader.get_destination_page_number(named[CONTENTS]) if CONTENTS in named else None
+        page = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
         if page is None or normalized(toc_title) not in texts[page]:
             front.append('the contents heading is not on the first contents page')
     else:

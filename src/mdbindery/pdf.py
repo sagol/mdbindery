@@ -50,7 +50,32 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         link.style.display = 'none';
         document.body.append(link);
       };
-      locators.filter(id => document.getElementById(id)).forEach(hide);   // the title block, the contents nav, the rights line
+      const flat = el => {   // a transform on el or above it leaves what it draws no area (scale(0), or scaleX(0) rotated)
+        for (let e = el; e; e = e.parentElement) {
+          const t = getComputedStyle(e).transform;
+          if (!t || t === 'none') continue;
+          const m = (t.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number);
+          const [a, b, c, d] = m.length === 16 ? [m[0], m[1], m[4], m[5]] : m;
+          if (Math.abs(a * d - b * c) < 1e-9) return true;
+        }
+        return false;
+      };
+      const place = (el, id) => {   // where Chrome can write el's destination: el itself when it has a box, else the first
+        if (!el) return null;      // element in it that has one (display: contents gives none), which gets id only when it
+        const boxed = e => getComputedStyle(e).display !== 'contents' && e.getClientRects().length > 0;   // has no id of its
+        const found = boxed(el) ? el : Array.from(el.querySelectorAll('*')).find(boxed);   // own; nothing is inserted, so no
+        if (!found) return null;   // selector of the book's CSS matches differently
+        if (!found.id) found.id = id;
+        return found;
+      };
+      const places = {};   // the title block, the contents nav and the rights line: the element each destination is written for
+      for (const ident of locators) {
+        const found = place(document.getElementById(ident), 'mdb-' + ident.toLowerCase());
+        if (found) {
+          places[ident] = found.id;
+          hide(found.id);
+        }
+      }
       const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
         let label = '', words = '', shows = false;   // text), whether anything shows, and generated text no page can repeat;
         const unresolved = [];   // without pseudo, ::before and ::after are left out
@@ -67,8 +92,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const a = value.trim();
           return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
         };
-        const inks = (el, style) => {   // its text is drawn: a visible fill colour, and no zero opacity on it or above it
-          if (alpha(style.webkitTextFillColor) === 0) return false;
+        const inks = (el, style) => {   // its text is drawn: a visible fill colour, no zero opacity on it or above it, and no
+          if (alpha(style.webkitTextFillColor) === 0 || flat(el)) return false;   // transform that leaves it no area
           for (let e = el; e; e = e.parentElement) if (parseFloat(getComputedStyle(e).opacity) === 0) return false;
           return parseFloat(style.opacity) !== 0;
         };
@@ -132,28 +157,24 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
-        const drawn = img => {   // an image draws: visible, not transparent, a box left after transforms, on the page
+        const drawn = img => {   // an image draws: visible, not transparent, an area left after transforms, on the page
           const box = img.getBoundingClientRect();
-          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && box.width > 0 && box.height > 0
-            && box.right > 0 && box.bottom > 0;
+          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && box.width > 0
+            && box.height > 0 && box.right > 0 && box.bottom > 0;
         };
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
         return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved};
-        };
+      };
       return {
       text: source.textContent,
+      places,
       entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
         const id = a.getAttribute('data-mdb-dest');
         let target = null;
         try { target = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); } catch (_) {}
-        let anchor = target;   // the heading itself is the destination; only a heading with no box of its own (display:
-        if (target && getComputedStyle(target).display === 'contents') {   // contents), for which Chrome writes none, gets
-          anchor = document.createElement('span');                           // an empty span first in it
-          anchor.id = id;
-          target.prepend(anchor);
-        }
+        const anchor = place(target, id);   // the heading itself, or for one with no box the first element in it with one
         if (anchor) hide(anchor.id);
         const name = a.cloneNode(true);   // the entry's full text, an image by its alt text, to name it in a message
         name.querySelectorAll('annotation, script, style').forEach(n => n.remove());
@@ -161,7 +182,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
         return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
           name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows};
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows,
+          placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
@@ -180,7 +202,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       footerTemplate: '<div style="font-size:9px;text-align:center;width:100%"><span class="pageNumber"></span></div>',
       timeout: 120000});
     fs.writeFileSync(jobs.text, documentState.text, 'utf8');
-    fs.writeFileSync(jobs.entries, JSON.stringify(documentState.entries), 'utf8');
+    fs.writeFileSync(jobs.entries, JSON.stringify({entries: documentState.entries, places: documentState.places}), 'utf8');
     console.log(JSON.stringify({browser: await browser.version(),
       puppeteer: require('puppeteer/package.json').version}));
   } finally { await browser.close(); }
@@ -323,17 +345,18 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     try:
         result = run([node, script, jobs_file], env=env, timeout=600, tail=65536)
         browser = json.loads(result.stdout.strip())
-        entries = pdfnav.join_entries(entries, json.loads(entries_file.read_text(encoding='utf-8')))
+        reported = json.loads(entries_file.read_text(encoding='utf-8'))   # each entry as printed, and each locator's element
+        entries, places = pdfnav.join_entries(entries, reported['entries']), reported['places']
         try:
             from pypdf import PdfReader, __version__ as pypdf_version
-            rows, _ = pdfnav.project(PdfReader(temporary, strict=True), entries, has_nav, rights)
+            rows, _ = pdfnav.project(PdfReader(temporary, strict=True), entries, has_nav, rights, places)
             pdfnav.finalize(temporary, final, rows, meta, aliases={e['target']: e['anchor'] for e in entries})
         except BuildError:
             raise
         except Exception as e:   # a parser or writer failure: the previous PDF stays
             raise BuildError(f'PDF navigation and metadata could not be written: {e}') from e
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
-        outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights,
+        outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights, places=places,
                                                        printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
