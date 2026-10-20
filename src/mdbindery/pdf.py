@@ -137,11 +137,19 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
           while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
           const r = box && box.getBoundingClientRect(), size = parseFloat(style.fontSize);   // of no height still prints its
-          const shift = (which === '::before' ? parseFloat(getComputedStyle(el).textIndent) || 0 : 0)   // overflow; a text-indent on
-            + Math.min(0, parseFloat(style.marginLeft) || 0);   // its element or a negative margin of its own moves its start
-          if (r && !onPage({left: r.left + shift, top: r.top, right: shift ? r.left + shift + size : Math.max(r.right, r.left + size),
-                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // then
-          // clipped by it and above
+          const indent = which === '::before' ? parseFloat(getComputedStyle(el).textIndent) || 0 : 0;   // overflow. A text-indent
+          const margin = parseFloat(style.marginLeft) || 0;   // on its element or a margin of its own, either sign, moves its
+          const rects = box ? box.getClientRects() : [];   // start: ::before from its element's first line box, ::after from
+          const start = !r ? 0 : which === '::before' ? (rects.length ? rects[0].left : r.left) + indent + margin   // the end of
+            : (rects.length ? rects[rects.length - 1].right : r.right) + margin;   // its last; then clipped by it and above
+          const moved = indent !== 0 || margin !== 0;
+          if (r && !onPage({left: moved ? start : r.left, top: r.top, right: moved ? start + size : Math.max(r.right, r.left + size),
+                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) {
+            if (moved && onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // moved off a page its
+                                 bottom: Math.max(r.bottom, r.top + size)}, el))   // element is on: Chrome still writes its text
+              unresolved.push(`${which} moved off the page by a margin or text-indent`);   // there, apart from the entry
+            return;
+          }
           const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset
               || ['transform', 'translate', 'rotate', 'scale'].some(k => style[k] && style[k] !== 'none')) {   // any transform, the
@@ -238,13 +246,20 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         };
         const painted = img => {   // where its pixels print: the rendered object after object-fit and object-position, cut
           const s = getComputedStyle(img), b = img.getBoundingClientRect();   // to its content box (padding and border left
-          const left = b.left + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft);   // out), in page coordinates; null
-          const top = b.top + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop);   // when nothing of it is inside, or a
-          const bw = img.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);   // position that cannot be read
-          const bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);   // (calc() beyond p% ± qpx)
+          const skewed = e => { for (; e; e = e.parentElement) {   // out), in page coordinates; null when nothing of it is
+            const t = getComputedStyle(e);   // inside, or a position that cannot be read (calc() beyond p% ± qpx). The box is
+            const m = ((/\(([^()]*)\)/.exec(t.transform) || [, ''])[1]).split(',').map(Number);   // measured in layout units
+            if (t.rotate && t.rotate !== 'none' || m.length >= 4 && (Math.abs(m[1]) > 1e-9 || Math.abs(m[2]) > 1e-9)) return true;
+          } return false; };   // and scaled to the page by the transform; a rotated or skewed one is taken whole (its axis-
+          if (skewed(img)) return b.width > 0 && b.height > 0 ? b : null;   // aligned bounds), as its pixels can't be mapped
+          const sx = img.offsetWidth ? b.width / img.offsetWidth : 1, sy = img.offsetHeight ? b.height / img.offsetHeight : 1;
+          const left = b.left + (parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft)) * sx;
+          const top = b.top + (parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)) * sy;
+          const bw = img.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+          const bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
           const nw = img.naturalWidth, nh = img.naturalHeight;
           if (!(bw > 0 && bh > 0)) return null;
-          if (!nw || !nh) return {left, top, right: left + bw, bottom: top + bh};
+          if (!nw || !nh) return {left, top, right: left + bw * sx, bottom: top + bh * sy};
           const k = {contain: Math.min(bw / nw, bh / nh), cover: Math.max(bw / nw, bh / nh), none: 1,
                      'scale-down': Math.min(1, bw / nw, bh / nh)}[s.objectFit];
           const cw = s.objectFit === 'fill' || k === undefined ? bw : nw * k, ch = s.objectFit === 'fill' || k === undefined ? bh : nh * k;
@@ -255,8 +270,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             return v.endsWith('%') ? free * parseFloat(v) / 100 : /^-?[\d.]+px$/.test(v) ? parseFloat(v) : NaN;
           };
           const x = at(px, bw - cw), y = at(py, bh - ch);
-          const r = {left: Math.max(left, left + x), top: Math.max(top, top + y),
-                     right: Math.min(left + bw, left + x + cw), bottom: Math.min(top + bh, top + y + ch)};
+          const r = {left: left + Math.max(0, x) * sx, top: top + Math.max(0, y) * sy,   // the visible part, scaled
+                     right: left + Math.min(bw, x + cw) * sx, bottom: top + Math.min(bh, y + ch) * sy};
           return r.right > r.left && r.bottom > r.top ? r : null;   // NaN compares false: not read, not drawn
         };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
