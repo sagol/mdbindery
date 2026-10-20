@@ -879,7 +879,10 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { rotate: 1turn; object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),
 ] + [(f'nav#TOC a {{ display: inline-block; width: 50px; height: 20px; overflow: hidden; }} nav#TOC img {{ width: 100px; height: '
       f'40px; object-fit: none; object-position: left top; {turn} }}', 'is hidden in the printed contents')   # the pixels, at the
-     for turn in ('transform: rotate(180deg);', 'transform: scale(-1, -1);', 'scale: -1;', 'transform: rotateY(180deg) rotateX(180deg);')])   # top left, are
+     for turn in ('transform: rotate(180deg);', 'transform: scale(-1, -1);', 'scale: -1;', 'transform: rotateY(180deg) rotateX(180deg);')]
+  + [('nav#TOC a { display: inline-block; width: 50px; overflow: hidden; } nav#TOC img { box-sizing: content-box; width: 20px; '
+      'height: 20px; padding-left: 100px; transform: rotate(1deg); }', 'is hidden in the printed contents')])   # turned, filling its
+# content box, only its padding inside the 50px link; above, the pixels at the top left are
 # turned to the bottom right, past the 50 by 20 link; identity or real, a turn never stands in for pixels outside the box
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -1031,9 +1034,9 @@ def named_book(tmp_path, files, title, authors, css):   # nav_book with its own 
     ('header#title-block-header .date { display: none; } header#title-block-header .author { break-before: page; }', False),
     ('header#title-block-header .date { display: none; }', True),   # the same words, all on the title page
 ])
-@pytest.mark.parametrize('title, author', [('Alice', 'Alice'), ('Alice', '©'), ('Be an Artist', 'Bea')])   # a word the title
+@pytest.mark.parametrize('title, author', [('Alice', 'Alice'), ('Alice', '©'), ('Be an Artist', 'Bea'), ('Alice', '2')])   # a word the title
 def test_pdf_a_title_block_word_the_title_repeats_must_print_on_the_title_page_too(tmp_path, browser, css, ok, title, author):
-    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # repeats, one of symbols only, letters across words
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # repeats, symbols only, letters across words, the footer's number
     summary = build(named_book(tmp_path, files, title, [author], css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     problems = summary['gates']['pdf']['front_matter']['problems']
     assert (problems == []) if ok else any(p.startswith('the title block does not fit on the title page') for p in problems), problems

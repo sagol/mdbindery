@@ -345,7 +345,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(bw, x + cw), y1 = Math.min(bh, y + ch);
           if (!(x1 > x0 && y1 > y0)) return null;   // nothing inside its box (NaN compares false: not read, not drawn)
           if (skewed(img)) {   // turned: its bounds stand for its pixels when they fill the whole box, or when the whole turned
-            if (x0 === 0 && y0 === 0 && x1 === bw && y1 === bh) return b;   // frame is inside every clip and the page, so
+            const bare = ['Top', 'Right', 'Bottom', 'Left'].every(k => !parseFloat(s['padding' + k]) && !parseFloat(s['border' + k + 'Width']));
+            if (bare && x0 === 0 && y0 === 0 && x1 === bw && y1 === bh) return b;   // frame (padding and border are no pixels) is
+            // inside every clip and the page, so
             const c = clipped(b, img.parentElement);   // wherever the pixels sit in it they print; a frame partly cut off
             return c.left <= b.left + 0.5 && c.top <= b.top + 0.5 && c.right >= b.right - 0.5 && c.bottom >= b.bottom - 0.5 ? b : null;
           }   // cannot be mapped, so it does not count as drawn

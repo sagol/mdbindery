@@ -375,9 +375,12 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     raw = [p.extract_text() or '' for p in reader.pages]
     texts = [normalized(t) for t in raw]
 
-    def unnumbered(i):   # page i's text without the page number its footer prints (its last line), when pages are numbered
+    def footless(i):   # page i's raw text without the page number its footer prints (its last line), when pages are numbered
         lines = raw[i].rstrip().split('\n')
-        return normalized('\n'.join(lines[:-1] if page_numbers and lines and lines[-1].strip() == str(i + 1) else lines))
+        return '\n'.join(lines[:-1] if page_numbers and lines and lines[-1].strip() == str(i + 1) else lines)
+
+    def unnumbered(i):
+        return normalized(footless(i))
     problems, skipped = [], []
     found = _flat(reader, reader.outline)
     if found != rows:
@@ -494,7 +497,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         # characters; whole words first, then a word the page's text splits over pieces or runs into a neighbour
         tokens = lambda text: [normalized(w) or ''.join(unicodedata.normalize('NFKC', w).split()) for w in text.split()]
         block = (elements.get('block') or {}).get('words') or ''
-        have = [t for t in tokens(raw[title_page]) if t]
+        have = [t for t in tokens(footless(title_page)) if t]   # the footer's page number is no word of the block
         left = []
         for word, want in sorted(((w, t) for w, t in zip(block.split(), tokens(block)) if t), key=lambda p: -len(p[1])):
             if want in have:
