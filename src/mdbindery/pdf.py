@@ -366,7 +366,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const content = drawn.content;
         if (content && content !== 'normal') {
           if (content === 'none') return '';
-          return /counter|quote|attr/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');
+          return /counter|quote|attr|url\(|image|gradient/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');
         }
         if (getComputedStyle(li).listStyleImage !== 'none') return null;   // an image marker, drawn when it loads, the type only its
         // fallback: which of the two prints cannot be told here

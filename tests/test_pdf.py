@@ -985,10 +985,12 @@ def test_pdf_front_matter_gate_checks_the_elements_themselves(tmp_path, browser,
 
 
 @needs_pandoc
-def test_pdf_an_image_list_marker_leaves_the_contents_text_unchecked(tmp_path, browser):
+@pytest.mark.parametrize('rule', ['nav#TOC ul { list-style: decimal url("%s"); }', 'nav#TOC ul { list-style-type: decimal; } '
+                                  'nav#TOC li::marker { content: url("%s"); }'])   # the image prints, never its URL
+def test_pdf_an_image_list_marker_leaves_the_contents_text_unchecked(tmp_path, browser, rule):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
-    css = ('nav#TOC ul { list-style: decimal url("data:image/svg+xml,'
-           '%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%278%27%3E%3Crect width=%278%27 height=%278%27/%3E%3C/svg%3E"); }')
+    css = rule % ('data:image/svg+xml,'
+                  '%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%278%27%3E%3Crect width=%278%27 height=%278%27/%3E%3C/svg%3E')
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']   # the image prints when it loads; decimal is only its fallback
     assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
@@ -1011,6 +1013,26 @@ def test_pdf_custom_list_counters_leave_the_contents_text_unchecked(tmp_path, br
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']
     assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
+
+
+def named_book(tmp_path, files, title, authors, css):   # nav_book with its own title and authors, no rights line
+    book = nav_book(tmp_path, files, lang='en-US', rights='', css=css)
+    yaml = book.base / 'mdbindery.yaml'
+    yaml.write_text(yaml.read_text(encoding='utf-8').replace('title: "Навигация & <тест>"', f'title: {json.dumps(title)}')
+                    .replace('authors: [Анна Первая, "Bo & Co"]', f'authors: {json.dumps(authors)}'), encoding='utf-8')
+    return config.load(book.base)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, ok', [
+    ('header#title-block-header .date { display: none; } header#title-block-header .author { break-before: page; }', False),
+    ('header#title-block-header .date { display: none; }', True),   # the same words, all on the title page
+])
+def test_pdf_a_title_block_word_the_title_repeats_must_print_on_the_title_page_too(tmp_path, browser, css, ok):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(named_book(tmp_path, files, 'Alice', ['Alice'], css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    problems = summary['gates']['pdf']['front_matter']['problems']
+    assert (problems == []) if ok else any(p.startswith('the title block does not fit on the title page') for p in problems), problems
 
 
 @needs_pandoc
