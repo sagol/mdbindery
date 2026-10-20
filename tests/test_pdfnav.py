@@ -247,7 +247,8 @@ def test_a_wrong_metadata_field_fails_the_metadata_gate(tmp_path):
     assert pdfnav.gates(final, rows, dict(META, title='Another'), 'Contents', True, META['rights'])[2]['result'] == 'fail'
 
 
-def contents_problems(tmp_path, pages, heads, listed, markers=None, before='', page_numbers=True, title_page=1, contents_page=2):
+def contents_problems(tmp_path, pages, heads, listed, markers=None, before='', page_numbers=True, title_page=1, contents_page=2,
+                      runs=None):
     """The outline gate's contents-text problems for text pages made here: heads are (label, page) per entry."""
     source, final = tmp_path / 'chrome.pdf', tmp_path / 'final.pdf'
     dests = [(pdfnav.TITLE, (title_page, 700)), (pdfnav.CONTENTS, (contents_page, 690))] + [
@@ -258,7 +259,7 @@ def contents_problems(tmp_path, pages, heads, listed, markers=None, before='', p
     meta = dict(META, rights='')
     pdfnav.finalize(source, final, rows, meta)
     outline = pdfnav.gates(final, rows, meta, 'Contents', True, '', printed=[label for label, _ in heads], listed=listed,
-                           markers=markers, before=before, page_numbers=page_numbers)[0]
+                           markers=markers, before=before, page_numbers=page_numbers, runs=runs)[0]
     return [p for p in outline['problems'] if 'printed contents' in p], outline['not_checked']
 
 
@@ -301,3 +302,22 @@ def test_the_contents_gate_does_not_guess_markers_it_cannot_spell(tmp_path):
     pages = [['cover'], ['Title'], ['Contents', 'alpha First'], ['First']]
     problems, skipped = contents_problems(tmp_path, pages, [('First', 3)], ['First'], [None])
     assert problems == [] and any('list marker' in n for n in skipped)
+
+
+def test_the_contents_gate_reads_outline_text_in_place_and_the_entries_after_it(tmp_path):
+    heads, listed = [('Map of Mars today', 3), ('Second', 4)], ['Map today', 'Second']   # «of Mars» drawn only as an outline
+    runs = [[('Map ', False), ('of Mars', True), (' today', False)], None]
+    pages = [['cover'], ['Title'], ['Contents', 'Map of Marsof Mars today', 'Second'], ['Map of Mars today', 'Text.'], ['Second', 'Text.']]
+    assert contents_problems(tmp_path, pages, heads, listed, ['', ''], runs=runs) == ([], [])
+    whole = [[('Map ', True), ('of Mars', True), (' today', True)], None]   # all of it, each piece written twice
+    pages[2] = ['Contents', 'Map Map of Marsof Mars today today', 'Second']
+    assert contents_problems(tmp_path, pages, heads, ['', 'Second'], ['', ''], runs=whole) == ([], [])
+    pages[2] = ['Contents', 'Map of Marsof Mars today']   # the entry after it is missing
+    problems, _ = contents_problems(tmp_path, pages, heads, listed, ['', ''], runs=runs)
+    assert len(problems) == 1 and '«Second»' in problems[0]
+    pages[2] = ['Contents', 'Map today', 'of Marsof Mars', 'Second']   # outline text elsewhere: the filled words, then the next
+    problems, skipped = contents_problems(tmp_path, pages, heads, listed, ['', ''], runs=runs)
+    assert problems == [] and any('arranged in a way' in n for n in skipped)
+    pages[2] = ['Contents', 'of Marsof Mars today', 'Second']   # a filled word missing
+    problems, _ = contents_problems(tmp_path, pages, heads, listed, ['', ''], runs=runs)
+    assert len(problems) == 1 and '«Map of Mars today»' in problems[0]

@@ -417,6 +417,25 @@ def test_pdf_outlined_contents_text_counts_as_drawn(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
+    assert summary['gates']['pdf']['outline']['not_checked'] == []   # read in place, the outline text as Chrome writes it
+
+
+@needs_pandoc
+def test_pdf_an_entry_partly_drawn_as_an_outline_keeps_the_contents_check(tmp_path, browser):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC li:first-child em { -webkit-text-fill-color: transparent; -webkit-text-stroke: 1px black; }'
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert summary['gates']['pdf']['outline']['not_checked'] == []   # the contents text was read, every entry in place
+
+
+@needs_pandoc
+def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['Map of Mars today', 'Second']
 
 
 @needs_pandoc

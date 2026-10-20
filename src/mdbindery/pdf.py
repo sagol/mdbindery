@@ -75,12 +75,13 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         }
       }
       const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
-        let label = '', words = '', shows = false, outlined = false;   // text), whether anything shows, whether text is drawn
+        let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
         // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
         const unresolved = [];   // without pseudo, ::before and ::after are left out
-        const add = (piece, alt) => {
-          label += piece;
+        const add = (piece, alt, outline = false) => {   // runs: its printed text in order, each piece with whether it is
+          label += piece;   // drawn only as an outline (Chrome writes such a piece twice in the page text)
           if (!alt) words += piece;
+          if (!alt || outline) runs.push([piece, outline]);
         };
         const alpha = color => {   // a computed colour's alpha, from its own arguments: after a slash (rgb(… / a), color(space … / a),
           if (color === 'transparent') return 0;   // oklch(… / a)), or the fourth of rgba(r, g, b, a); none of those is opaque
@@ -149,7 +150,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (printed.trim()) shows = true;
           outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // an outline or a shadow only: no words to find
-          add(printed, alpha(style.webkitTextFillColor) === 0);
+          add(printed, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0);
         };
         const hides = el => {   // nothing inside it prints, its ::before and ::after included, whatever their own style says
           const style = getComputedStyle(el);
@@ -165,7 +166,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
                 outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // only a stroke or a shadow: Chrome may write its
-                add(n.data, alpha(style.webkitTextFillColor) === 0);   // text twice, or not at all, so it is no word to find
+                add(n.data, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0);   // text twice
                 shows = true;
               }
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
@@ -206,7 +207,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
-        return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved, outlined};
+        return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved, outlined,
+                runs};
       };
       const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
         const li = a.closest('li');   // ::marker string, nothing for a bullet; null where it cannot be told
@@ -259,8 +261,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
         return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
           name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
-          marker: marker(a), outlined: entry.outlined,
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows,
+          marker: marker(a), outlined: entry.outlined, runs: entry.outlined ? entry.runs : null,
+          printed: !!anchor && anchor.checkVisibility() && heading.shows,   // laid out, and something in it drawn (a visible
+          // descendant of a hidden heading prints, and Chrome writes the heading's destination)
           placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
@@ -446,7 +449,8 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights, places=places,
                                                        printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
-                                                       markers=[None if e.get('outlined') else e['marker'] for e in entries],
+                                                       markers=[e['marker'] for e in entries],
+                                                       runs=[e.get('runs') for e in entries],
                                                        before=reported['before'],
                                                        page_numbers=settings['page_numbers'], front=reported['front'],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})

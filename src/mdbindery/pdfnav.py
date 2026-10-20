@@ -134,7 +134,7 @@ def join_entries(entries, page):
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
         out.append(dict(e, anchor=seen.get('anchor') or e['key'], marker=seen.get('marker', ''), outlined=seen.get('outlined', False),
-                        label=seen.get('label', ''),
+                        runs=seen.get('runs'), label=seen.get('label', ''),
                         text=seen.get('text', seen.get('label', '')),
                         words=seen.get('words', seen.get('label', ''))))
     return out
@@ -325,12 +325,29 @@ def _flat(reader, items, depth=1):
     return out
 
 
+def _outlined_end(contents, at, pieces):
+    """Where an entry drawn partly or wholly as an outline ends, read from at: each filled piece exactly once, each outline
+    piece twice, as Chrome writes it, or once; -1 when the text there is not the entry."""
+    if not pieces:
+        return at
+    (text, outline), rest = pieces[0], pieces[1:]
+    if not outline:
+        return _outlined_end(contents, at + len(text), rest) if contents.startswith(text, at) else -1
+    for copies in (2, 1):
+        if contents.startswith(text * copies, at):
+            end = _outlined_end(contents, at + len(text) * copies, rest)
+            if end >= 0:
+                return end
+    return -1
+
+
 def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None, markers=None,
-          before='', page_numbers=True, front=None):
+          before='', page_numbers=True, front=None, runs=None):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
     entry's heading words, which the page check looks for on its destination page (a bookmark label may also name an image
     by its alt text); listed holds the words each entry shows in the contents, which must be in the contents pages' own
-    text, in order: CSS that keeps an entry's text out of the PDF (zero opacity or size, clipping, off the page) shows there."""
+    text, in order: CSS that keeps an entry's text out of the PDF (zero opacity or size, clipping, off the page) shows there.
+    runs holds, for an entry with text drawn only as an outline, its printed pieces in order as (text, outline only)."""
     from pypdf import PdfReader
     import xml.etree.ElementTree as ElementTree
     reader = PdfReader(path, strict=True)
@@ -376,11 +393,35 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         pages = '' if first is None else f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
         matched = None
         if first is not None and markers is not None and None in markers:   # a marker the page could not spell out: no exact
-            skipped.append('the printed contents text: a list marker uses counters or a style the check cannot spell out, or an '
-                           'entry is drawn only as an outline, so where each entry prints was not checked')   # sequence to read
+            skipped.append('the printed contents text: a list marker uses counters or a style the check cannot spell out, so '
+                           'where each entry prints was not checked')   # sequence to read
             first = None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
+            pieces = [(normalized(t), o) for t, o in (runs[n] if runs is not None and runs[n] else ()) if normalized(t)]
+            if pieces:   # text drawn only as an outline: its pieces in place, the outline ones as Chrome writes them, and
+                mark = normalized(markers[n]) if markers is not None else ''   # the next plain entry right after
+                plain = [m for m in range(n + 1, len(rows)) if normalized(listed[m]) and not (runs and runs[m])]
+                expect = lambda m: (normalized(markers[m]) if markers is not None else '') + normalized(listed[m])
+                end = _outlined_end(contents, at + len(mark), pieces) if contents.startswith(mark, at) else -1
+                if end >= 0 and (not plain or plain[0] != n + 1 or contents.startswith(expect(n + 1), end)):
+                    at, matched = end, label
+                    continue
+                bound = next((k for k in (contents.find(expect(m), at) for m in plain) if k >= 0), len(contents))
+                cursor = at   # else its filled words, in order, before the next plain entry the text holds
+                for text, outline in pieces:
+                    found = -1 if outline else contents.find(text, cursor, bound)
+                    cursor = cursor if outline else found + len(text) if found >= 0 else -1
+                    if cursor < 0:
+                        break
+                if cursor < 0:
+                    problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
+                else:
+                    skipped.append(f'«{label}»: its outline text is arranged in a way the check cannot read, so only its '
+                                   'filled words were found, in order, before the next entry')
+                    matched = label
+                at = bound   # the next entry is read where it starts, past whatever this one left
+                continue
             if not want:   # an image, or text drawn only as an outline: no text to find; its marker still prints
                 skipped.append(f'«{label}»: no printed words in the contents to find')
                 mark = normalized(markers[n]) if markers is not None and markers[n] is not None else ''
