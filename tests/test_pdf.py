@@ -480,7 +480,8 @@ def test_pdf_an_image_under_a_filter_that_keeps_it_visible_prints(tmp_path, brow
                                  'nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding-left: 70px; }',
                                  'nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } '   # scaled to half:
                                  'nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding-left: 100px; '   # its
-                                 'transform: scale(.5); transform-origin: left top; }'])   # pixels at 50-60px, inside the link
+                                 'transform: scale(.5); transform-origin: left top; }',   # pixels at 50-60px, inside the link
+                                 'nav#TOC img { transform: rotate(1deg); }'])   # rotated, pixels in place
 def test_pdf_an_image_whose_content_stays_in_its_box_prints(tmp_path, browser, css):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
@@ -668,6 +669,8 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
+    ('nav#TOC a { display: block; } nav#TOC a::after { content: " suffix"; margin-left: 4px; }',   # a block's suffix starts after
+     ['Map of Mars today suffix', 'Second suffix']),   # its last text, not at the block's right edge
     ('nav#TOC a { text-transform: uppercase; }', ['MAP OF MARS TODAY', 'SECOND']),   # the case the contents print
     ('nav#TOC a { text-transform: capitalize; }', ['Map Of Mars Today', 'Second']),
 ])
@@ -687,8 +690,10 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(9999px); }', '::before moved by'),
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; translate: 9999px; }', '::before moved by'),   # the
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(0); }', '::before moved by'),
-    ('nav#TOC a::after { content: " Ghostword"; margin-left: 9999px; }', '::after moved off the page'),   # its text still lands
+    ('nav#TOC a::after { content: " Ghostword"; margin-left: 9999px; }', '::after moved out of view'),   # its text still lands
     # in the page text, away from the entry
+    ('nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } nav#TOC a::after { content: "Ghost"; padding-left: 9999px; }',
+     '::after moved out of view'),   # its own padding, clipped by its element
 ])   # individual transform properties move it too; even the identity puts its text after the contents in the page text
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -795,7 +800,10 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } nav#TOC img { box-sizing: content-box; width: 20px; '
      'height: 20px; padding-left: 200px; transform: scale(.5); transform-origin: left top; }',   # scaled pixels at 100-110px,
      'is hidden in the printed contents'),   # past the 80px link
-])
+    ('nav#TOC img { rotate: 0deg; object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # a
+    ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; rotate: 0deg; }', 'is hidden in the printed contents'),   # turn,
+    ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; transform: rotate(1deg); }', 'is hidden in the printed contents'),
+])   # identity or real, never stands in for pixels outside the box
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
