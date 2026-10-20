@@ -496,6 +496,37 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
 
 
 @needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC li:first-child a { opacity: 0; }', 'nav#TOC li:first-child { opacity: 0; }',
+                                 'nav#TOC li:first-child a { color: transparent; }', 'nav#TOC li:first-child a { color: rgb(0 0 0 / 0%); }',
+                                 'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; }'])
+def test_pdf_contents_entry_drawn_invisibly_stops_the_build(tmp_path, browser, css):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_heading_drawn_invisibly_is_not_printed(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    with pytest.raises(BuildError, match="«Second» points to a heading that isn't printed"):
+        build(nav_book(tmp_path, files, lang='en-US', css='body > h1:nth-of-type(2) { opacity: 0; }'), out_dir=tmp_path / 'out',
+              output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC li:first-child a { font-size: 0; }',
+                                 'nav#TOC li:first-child a { display: inline-block; transform: scale(0); }',
+                                 'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
+                                 'nav#TOC li:first-child a { position: absolute; left: -9999px; }'])
+def test_pdf_outline_gate_finds_each_entry_in_the_printed_contents(tmp_path, browser, css):
+    files = {'01.md': '# Alphaword\n\nText.\n', '02.md': '# Betaword\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']
+    assert not summary['ok'] and outline['result'] == 'fail'
+    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (page 3); CSS may keep it out of print']
+
+
+@needs_pandoc
 def test_pdf_generated_text_of_a_hidden_part_stays_out_of_the_bookmark(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'nav#TOC em { display: none; } nav#TOC em::after { content: "!"; }'

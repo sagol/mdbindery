@@ -135,7 +135,8 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
-        out.append(dict(e, label=seen.get('label', ''), text=seen.get('text', seen.get('label', ''))))
+        out.append(dict(e, label=seen.get('label', ''), text=seen.get('text', seen.get('label', '')),
+                        words=seen.get('words', seen.get('label', ''))))
     return out
 
 
@@ -283,9 +284,11 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None):
+def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
-    entry's printed text, which the page check looks for (a bookmark label may also name an image by its alt text)."""
+    entry's heading words, which the page check looks for on its destination page (a bookmark label may also name an image
+    by its alt text); listed holds the words each entry shows in the contents, which must be in the contents pages' own
+    text, in order: CSS that keeps an entry's text out of the PDF (zero opacity or size, clipping, off the page) shows there."""
     from pypdf import PdfReader
     import xml.etree.ElementTree as ElementTree
     reader = PdfReader(path, strict=True)
@@ -304,6 +307,23 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         if not 0 <= at < len(texts[page]):
             problems.append(f'«{label}» does not begin on its destination page {page + 1}')
     named = named_destinations(reader)
+    if listed is not None and rows:
+        first = reader.get_destination_page_number(named[CONTENTS]) if CONTENTS in named else None
+        end = max(min(row[2] for row in rows), first + 1) if first is not None else None   # up to the first listed heading's page
+        contents, at = ''.join(texts[first:end]) if first is not None else '', 0
+        if first is None:
+            problems.append('the contents page has no destination, so its entries cannot be found on it')
+        for n, (label, *_) in enumerate(rows if first is not None else ()):
+            want = normalized(listed[n])
+            if not want:
+                skipped.append(f'«{label}»: no printed words in the contents to find')
+                continue
+            where = contents.find(want, at)
+            if where < 0:
+                pages = f'page {first + 1}' if end == first + 1 else f'pages {first + 1}–{end}'
+                problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
+            else:
+                at = where + len(want)
     for index, page in enumerate(reader.pages):   # every printed contents link goes where its bookmark goes
         for raw, name in _link_names(page) if links else ():
             if name in links:

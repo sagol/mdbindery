@@ -51,22 +51,37 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const text = a.cloneNode(true);   // the heading's words for its page check, by the word gate's extraction rule:
         text.querySelectorAll('annotation, script, style').forEach(n => n.remove());   // no TeX annotation, script or style
         text.querySelectorAll('br').forEach(n => n.replaceWith(' '));
-        let label = '', shows = false;   // the bookmark is what the printed entry shows: text that lays out and is visible
-        const unresolved = [];           // (a display: contents link has no box of its own), and an image by its alt text
+        let label = '', words = '', shows = false;   // the bookmark is what the printed entry shows: text that lays out and is
+        const unresolved = [];   // inked (a display: contents link has no box of its own), and an image by its alt text; words
+        const add = (piece, alt) => {   // leaves the alt text out, for the gate that finds each entry in the contents' own text
+          label += piece;
+          if (!alt) words += piece;
+        };
+        const alpha = color => {   // a computed colour's alpha: rgb(r, g, b) is opaque, rgba(), rgb(… / a) and color() carry it
+          if (color === 'transparent') return 0;
+          const parts = color.match(/-?[\d.]+%?/g) || [];
+          return parts.length >= 4 ? parseFloat(parts[3]) / (parts[3].endsWith('%') ? 100 : 1) : 1;
+        };
+        const inks = (el, style) => {   // its text is drawn: a visible fill colour, and no zero opacity on it or above it
+          if (alpha(style.webkitTextFillColor) === 0) return false;
+          for (let e = el; e; e = e.parentElement) if (parseFloat(getComputedStyle(e).opacity) === 0) return false;
+          return parseFloat(style.opacity) !== 0;
+        };
         const generated = (el, which) => {   // the words a visible ::before or ::after prints: its strings and attr() values;
           const style = getComputedStyle(el, which);   // a counter or a quote mark is not readable here, so it is reported
           const value = style.content;
-          if (!value || value === 'none' || value === 'normal' || style.display === 'none' || style.visibility !== 'visible') return;
-          let i = 0, words = '';
+          if (!value || value === 'none' || value === 'normal' || style.display === 'none' || style.visibility !== 'visible'
+              || !inks(el, style)) return;
+          let i = 0, printed = '';
           while (i < value.length) {
             const c = value[i];
             if (c === '"' || c === "'") {
               let j = i + 1;
               while (j < value.length && value[j] !== c) {
                 const hex = value[j] === '\\' && /^[0-9a-fA-F]{1,6} ?/.exec(value.slice(j + 1));
-                if (hex) { words += String.fromCodePoint(parseInt(hex[0], 16)); j += 1 + hex[0].length; }
-                else if (value[j] === '\\') { words += value[j + 1] || ''; j += 2; }
-                else words += value[j++];
+                if (hex) { printed += String.fromCodePoint(parseInt(hex[0], 16)); j += 1 + hex[0].length; }
+                else if (value[j] === '\\') { printed += value[j + 1] || ''; j += 2; }
+                else printed += value[j++];
               }
               i = j + 1;
             } else if (c === '/') {
@@ -77,14 +92,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               const part = /^[-\w]+(\((?:[^()"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\([^()]*\))*\))?/.exec(value.slice(i));
               if (!part) { unresolved.push(value); return; }
               const name = part[0].split('(')[0].toLowerCase(), args = part[1] ? part[1].slice(1, -1).trim() : '';
-              if (name === 'attr' && /^[-\w]+$/.test(args)) words += el.getAttribute(args) || '';
+              if (name === 'attr' && /^[-\w]+$/.test(args)) printed += el.getAttribute(args) || '';
               else if (['attr', 'counter', 'counters', 'open-quote', 'close-quote'].includes(name)) unresolved.push(part[0]);
               // no-open-quote and no-close-quote print nothing; url(), gradients and image sets are images, no words
               i += part[0].length;
             }
           }
-          if (words.trim()) shows = true;
-          label += words;
+          if (printed.trim()) shows = true;
+          add(printed);
         };
         const hides = el => {   // nothing inside it prints, its ::before and ::after included, whatever their own style says
           const style = getComputedStyle(el);
@@ -94,18 +109,18 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
-              if (!n.data.trim()) { label += ' '; continue; }   // a space that wraps a line may have no box of its own
-              const range = document.createRange();
+              if (!n.data.trim()) { add(' '); continue; }   // a space that wraps a line may have no box of its own
+              const range = document.createRange(), style = getComputedStyle(n.parentElement);
               range.selectNodeContents(n);
-              if (range.getClientRects().length > 0 && getComputedStyle(n.parentElement).visibility === 'visible') {
-                label += n.data;
+              if (range.getClientRects().length > 0 && style.visibility === 'visible' && inks(n.parentElement, style)) {
+                add(n.data);
                 shows = true;
               }
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
-              if (n.localName === 'br') label += ' ';
+              if (n.localName === 'br') add(' ');
               else if (n.localName !== 'img') walk(n);
-              else if (n.checkVisibility({visibilityProperty: true})) {
-                label += ' ' + (n.getAttribute('alt') || '') + ' ';
+              else if (n.checkVisibility({visibilityProperty: true, opacityProperty: true})) {
+                add(' ' + (n.getAttribute('alt') || '') + ' ', true);
                 shows = true;
               }
             }
@@ -115,8 +130,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         let lays = true;   // the link and every ancestor (its list item, the nav) lay out
         for (let el = a; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(a);
-        return {id, label: label.replace(/\s+/g, ' ').trim(), text: text.textContent.replace(/\s+/g, ' ').trim(),
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}), listed: shows, unresolved};
+        return {id, label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(),
+          text: text.textContent.replace(/\s+/g, ' ').trim(), listed: shows, unresolved,
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true})};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
@@ -289,7 +305,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
             raise BuildError(f'PDF navigation and metadata could not be written: {e}') from e
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights,
-                                                       printed=[e['text'] for e in entries],
+                                                       printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:
