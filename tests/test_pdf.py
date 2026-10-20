@@ -679,6 +679,9 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
     ('nav#TOC a::before { content: "Chapter "; display: inline-block; padding-top: 2px; }', ['Chapter Map of Mars today', 'Chapter Second']),
+    ('nav#TOC li { height: 160px; overflow: hidden; } nav#TOC a { display: block; } '   # a block prefix whose top margin is already
+     'nav#TOC a::before { content: "Chapter "; display: block; margin-top: 100px; }',   # in the layout (collapsed through its link),
+     ['Chapter Map of Mars today', 'Chapter Second']),   # all of it inside the clipping item
     ('nav#TOC li:first-child a { display: inline-block; width: 400px; overflow: hidden; white-space: nowrap; }',   # a clip that
      ['Map of Mars today', 'Second']),   # cuts nothing
     ('nav#TOC a { display: block; } nav#TOC a::after { content: " suffix"; margin-left: 4px; }',   # a block's suffix starts after
@@ -708,9 +711,12 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
      '::after moved out of view'),   # its own padding, clipped by its element
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 12px; overflow: hidden; }',
      '::before clipping its own overflow'),   # some of it may show: which part cannot be measured
+    ('nav#TOC li:first-child a { display: inline-block; width: 120px; height: 1.3em; overflow: hidden; } '
+     'nav#TOC li:first-child a::after { content: " and a long generated tail that wraps"; }',
+     '::after inside an element that cuts off part of its content'),   # its later lines are cut, its glyphs may stay in the text
     ('nav#TOC a { display: inline-block; height: 20px; overflow: hidden; } nav#TOC a::before { content: "Ghostword"; '
-     'display: inline-block; vertical-align: top; padding-top: 100px; }', '::before moved out of view'),   # pushed below its
-    # clipping host while the entry's own words stay in view
+     'display: inline-block; vertical-align: top; padding-top: 100px; }', '::before inside an element that cuts off part'),   # pushed
+    # below its clipping host while the entry's own words stay in view: the host's content runs past it
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; padding-right: 100px; overflow: hidden; '
      'white-space: nowrap; }', '::before clipping its own overflow'),   # no content width, but its padding box shows the text
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: clip; overflow-clip-margin: 100px; }',
@@ -966,6 +972,16 @@ def test_pdf_front_matter_gate_checks_the_elements_themselves(tmp_path, browser,
     files = {'01.md': '# First\n\nСодержание.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, rights=rights, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert any(p.startswith(problem) for p in summary['gates']['pdf']['front_matter']['problems']), summary['gates']['pdf']['front_matter']
+
+
+@needs_pandoc
+def test_pdf_an_image_list_marker_leaves_the_contents_text_unchecked(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = ('nav#TOC ul { list-style: decimal url("data:image/svg+xml,'
+           '%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%278%27%3E%3Crect width=%278%27 height=%278%27/%3E%3C/svg%3E"); }')
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']   # the image prints when it loads; decimal is only its fallback
+    assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
 
 
 @needs_pandoc

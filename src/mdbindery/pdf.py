@@ -165,15 +165,22 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const runs = Array.from(content.getClientRects()).filter(q => q.width > 0);
           const start = !r ? 0 : which === '::before' ? (rects.length ? rects[0].left : r.left) + indent + margin
             : (runs.length ? runs[runs.length - 1].right : rects.length ? rects[0].left : r.left) + margin;
-          const drop = ['inline', 'contents'].includes(style.display) ? 0   // a box of its own moves its text down by its own top
-            : (parseFloat(style.marginTop) || 0) + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);   // offsets
-          const moved = indent !== 0 || margin !== 0 || drop !== 0, line = parseFloat(style.lineHeight) || 1.2 * size;
-          if (r && !onPage({left: moved ? start : r.left, top: r.top + drop, right: moved ? start + size : Math.max(r.right, r.left + size),
-                            bottom: drop ? r.top + drop + line : Math.max(r.bottom, r.top + line)}, el)) {
+          const moved = indent !== 0 || margin !== 0;   // vertical offsets are left to the overflow check below: a top margin
+          // may already be in the layout (collapsed through its element), so adding it here would count it twice
+          if (r && !onPage({left: moved ? start : r.left, top: r.top, right: moved ? start + size : Math.max(r.right, r.left + size),
+                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) {
             if (moved && onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // moved off a page its
                                  bottom: Math.max(r.bottom, r.top + size)}, el))   // element is on: Chrome still writes its text
               unresolved.push(`${which} moved out of view by a margin, padding or text-indent`);   // there, apart from the entry
             return;
+          }
+          for (let e = el; e; e = e.parentElement) {   // a clipping box whose content runs past it may cut lines this text wraps
+            const st = getComputedStyle(e);   // into; where in it the generated run lands cannot be measured, so it is reported
+            if ((st.overflowX !== 'visible' || st.overflowY !== 'visible') && !['inline', 'contents'].includes(st.display)
+                && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1)) {
+              unresolved.push(`${which} inside an element that cuts off part of its content`);
+              return;
+            }
           }
           const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset
@@ -348,6 +355,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (content === 'none') return '';
           return /counter|quote|attr/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');
         }
+        if (getComputedStyle(li).listStyleImage !== 'none') return null;   // an image marker, drawn when it loads, the type only its
+        // fallback: which of the two prints cannot be told here
         const counted = e => { const st = getComputedStyle(e);   // counters the book's CSS sets: the ordinal is no longer the place
           return [st.counterIncrement, st.counterSet].some(v => v && v !== 'none') || !['none', 'list-item 0'].includes(st.counterReset); };
         if (Array.from(li.parentElement.children).some(c => c.localName === 'li' && counted(c)) || counted(li.parentElement)) return null;
