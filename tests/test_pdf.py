@@ -393,37 +393,28 @@ def test_pdf_repeated_titles_and_two_headings_on_one_page_keep_their_own_destina
 
 
 @needs_pandoc
-def test_pdf_display_contents_heading_gets_its_bookmark(tmp_path, browser):
-    chapters = dict(CHAPTERS, **{'02.md': CHAPTERS['02.md'].replace('# Вторая глава', '# Вторая *глава*')})   # an element in it
-    summary = build(nav_book(tmp_path, chapters, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
-                    output_format='pdf', log=quiet)
-    assert summary['ok'], summary['gates']
-    reader = PdfReader(summary['pdf'])
-    found = outline_of(reader)
-    assert 'Вторая глава' in [t for t, _, _ in found]
-    named = {urllib.parse.unquote(str(k)[1:]): v for k, v in reader.named_destinations.items()}
-    contents = next(i for i, p in enumerate(reader.pages) if 'Первая глава' in (p.extract_text() or ''))
-    targets = [urllib.parse.unquote(str(a.get_object()['/Dest'])[1:]) for a in reader.pages[contents]['/Annots']]
-    targets = list(dict.fromkeys(targets))   # a link with an element in it gets one annotation per inline part
-    assert [reader.get_destination_page_number(named[t]) for t in targets] == [page for _, _, page in found]   # every printed link opens its bookmark's page
-
-
-@needs_pandoc
-def test_pdf_display_contents_heading_with_nothing_boxed_in_it_stops_the_build(tmp_path, browser):
+@pytest.mark.parametrize('heading', ['# Вторая глава', '# Вторая *глава*'])   # Markdown gives nothing inside a heading an id
+def test_pdf_display_contents_heading_stops_the_build(tmp_path, browser, heading):
+    chapters = dict(CHAPTERS, **{'02.md': CHAPTERS['02.md'].replace('# Вторая глава', heading)})
     with pytest.raises(BuildError, match='«Вторая глава» points to a heading with no box of its own'):
-        build(nav_book(tmp_path, CHAPTERS, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
+        build(nav_book(tmp_path, chapters, css='body > h1:nth-of-type(2) { display: contents; }'), out_dir=tmp_path / 'out',
               output_format='pdf', log=quiet)
 
 
 @needs_pandoc
-def test_pdf_display_contents_heading_keeps_its_elements_in_order(tmp_path, browser):
-    files = {'01.md': '# Map *Ofword* **Mars** today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
-    css = 'body > h1:nth-of-type(1) { display: contents; } body > h1 > :first-child { display: none; }'   # nothing put before em
+def test_pdf_navigation_gives_no_element_an_id_the_books_css_could_see(tmp_path, browser):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'body > h1:first-of-type { display: contents; } body > h1 > [id] { display: none; }'   # an id would hide the em
+    with pytest.raises(BuildError, match='no element in it that has both a box and an id'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+def test_pdf_outlined_contents_text_counts_as_drawn(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC a { -webkit-text-fill-color: transparent; -webkit-text-stroke: 1px black; }'   # a clear fill, a visible stroke
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
-    reader = PdfReader(summary['pdf'])
-    first = next(page for _, _, page in outline_of(reader))
-    assert 'mapmarstoday' in pdfnav.normalized(reader.pages[first].extract_text())
 
 
 @needs_pandoc
@@ -487,6 +478,9 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::after { content: url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7") " \\"x\\"" / "spoken only"; }', ['Map of Mars today "x"', 'Second "x"']),
     ('nav#TOC a::before { content: "Chapter "; visibility: hidden; }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Chapter "; display: none; }', ['Map of Mars today', 'Second']),
+    ('nav#TOC a::before { content: "Ghostword "; font-size: 0; }', ['Map of Mars today', 'Second']),   # drawn at no size
+    ('nav#TOC a::before { content: "Ghostword "; clip-path: inset(50%); }', ['Map of Mars today', 'Second']),
+    ('nav#TOC a::before { content: "Ghostword "; display: inline-block; transform: scale(0); }', ['Map of Mars today', 'Second']),
 ])
 def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_path, browser, css, labels):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -499,6 +493,7 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
 @pytest.mark.parametrize('css, named', [
     ('nav#TOC li { counter-increment: entry; } nav#TOC a::before { content: counter(entry) ". "; }', 'counter(entry)'),
     ('nav#TOC a::before { content: open-quote; } nav#TOC a::after { content: close-quote; }', 'open-quote'),
+    ('nav#TOC a::before { content: "Ghostword"; position: absolute; left: -9999px; }', '::before with position: absolute'),
 ])
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -682,9 +677,9 @@ def test_pdf_custom_list_counters_leave_the_contents_text_unchecked(tmp_path, br
 
 
 @needs_pandoc
-def test_pdf_an_image_heading_under_a_boxless_clipping_ancestor_prints(tmp_path, browser):
+def test_pdf_an_image_entry_under_a_boxless_clipping_ancestor_prints(tmp_path, browser):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US',
-                    css='body > h1:first-of-type { display: contents; overflow: hidden; }')   # overflow does nothing without a box
+                    css='nav#TOC li:first-child { display: contents; overflow: hidden; }')   # overflow does nothing without a box
     Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
     summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']

@@ -70,7 +70,6 @@ def test_prepare_without_contents_or_rights_changes_nothing(tmp_path):
     (lambda t: t.replace('<section class="pdf-cover">', '<section class="pdf-cover" id="cover-root">').replace('href="#second"', 'href="#cover-root"'),
      "points to 'cover-root'"),
     (lambda t: t.replace('<p>Текст.</p>', '<p id="mdb-dest-9">Текст.</p>'), 'navigation adds'),
-    (lambda t: t.replace('<p>Текст.</p>', '<p id="mdb-toc">Текст.</p>'), 'navigation adds'),
     (lambda t: t.replace('<header id="title-block-header">', '<header>'), 'no title block'),
 ])
 def test_prepare_refuses_what_it_cannot_anchor(tmp_path, change, message):
@@ -79,8 +78,9 @@ def test_prepare_refuses_what_it_cannot_anchor(tmp_path, change, message):
 
 
 def test_prepare_accepts_other_ids_that_start_with_mdb(tmp_path):
-    out, entries, _ = prepared(tmp_path, HTML.replace('<p>Текст.</p>', '<p id="mdb-tools">Текст.</p>'))
-    assert '<p id="mdb-tools">Текст.</p>' in out and len(entries) == 3   # pandoc makes it from "# MDB Tools"
+    for ident in ('mdb-tools', 'mdb-toc'):
+        out, entries, _ = prepared(tmp_path, HTML.replace('<p>Текст.</p>', f'<p id="{ident}">Текст.</p>'))
+        assert f'<p id="{ident}">Текст.</p>' in out and len(entries) == 3   # pandoc makes mdb-tools from "# MDB Tools"
 
 
 def test_join_entries_takes_the_pages_anchors_and_labels_and_stops_on_a_hidden_heading():

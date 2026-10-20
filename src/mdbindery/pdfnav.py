@@ -90,7 +90,7 @@ def prepare(path, rights):
     scan = _Scan(text)
     scan.feed(text)
     scan.close()
-    generated = {RIGHTS} | {'mdb-' + ident.lower() for ident in (TITLE, CONTENTS, RIGHTS)}   # ids the PDF's navigation may add
+    generated = {RIGHTS}   # the id the PDF's navigation adds (the rights line); contents entries are keyed mdb-dest-<n>
     reserved = sorted(i for i in scan.ids if i in generated or re.fullmatch(r'mdb-dest-\d+', i))
     if reserved:
         raise BuildError(f'the book uses the id {reserved[0]!r}, which the PDF\'s navigation adds; rename it')
@@ -127,9 +127,9 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» is hidden in the printed contents, so the bookmarks would "
                              'not match it; show it there, or keep its heading out of the contents with a lower options.toc_depth')
         if seen.get('placeless'):
-            raise BuildError(f"contents entry «{named}» points to a heading with no box of its own and no element in it that has one "
-                             '(display: contents), so its bookmark has nowhere to open; give the heading a box, or keep it out of the '
-                             'contents with a lower options.toc_depth')
+            raise BuildError(f"contents entry «{named}» points to a heading with no box of its own (display: contents) and no element "
+                             'in it that has both a box and an id, so its bookmark has nowhere to open; give the heading a box, or keep '
+                             'it out of the contents with a lower options.toc_depth')
         if seen.get('unresolved'):
             raise BuildError(f"contents entry «{named}» shows text that print CSS generates with {', '.join(seen['unresolved'])}, which "
                              'the bookmark cannot repeat; write that text into the heading, or generate only strings and attr() there')
@@ -183,7 +183,8 @@ def project(reader, entries, has_nav, rights, places=None):
     for ident, wanted in ((TITLE, True), (RIGHTS, bool(rights)), (CONTENTS, has_nav)):
         if wanted:
             if place(ident) not in named:
-                raise BuildError(f'Chrome wrote no destination for the {ident} locator')
+                raise BuildError(f'Chrome wrote no destination for the {ident} locator (with display: contents, it needs an element '
+                                 'inside with a box and an id)')
             pages[ident] = reader.get_destination_page_number(named[place(ident)])
     return rows, pages
 
@@ -346,8 +347,10 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
             first = None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
-            if not want:
+            if not want:   # an image, or text drawn only as an outline: no text to find; its marker still prints
                 skipped.append(f'«{label}»: no printed words in the contents to find')
+                mark = normalized(markers[n]) if markers is not None and markers[n] is not None else ''
+                at += len(mark) if mark and contents.startswith(mark, at) else 0
                 continue
             mark = normalized(markers[n]) if markers is not None else ''   # the entry is its own list marker, then its words,
             where = at + len(mark) if contents.startswith(mark + want, at) else -1   # right here: anything else means it is not

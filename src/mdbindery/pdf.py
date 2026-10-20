@@ -60,17 +60,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         }
         return false;
       };
-      const place = (el, id) => {   // where Chrome can write el's destination: el itself when it has a box, else the first
-        if (!el) return null;      // element in it that has one (display: contents gives none), which gets id only when it
-        const boxed = e => getComputedStyle(e).display !== 'contents' && e.getClientRects().length > 0;   // has no id of its
-        const found = boxed(el) ? el : Array.from(el.querySelectorAll('*')).find(boxed);   // own; nothing is inserted, so no
-        if (!found) return null;   // selector of the book's CSS matches differently
-        if (!found.id) found.id = id;
-        return found;
-      };
+      const place = el => {   // where Chrome can write el's destination: el itself when it has a box, else the first element
+        if (!el) return null;   // in it with a box and an id of its own (display: contents gives none). Nothing is inserted
+        const boxed = e => getComputedStyle(e).display !== 'contents' && e.getClientRects().length > 0;   // and no attribute is
+        return boxed(el) ? el : Array.from(el.querySelectorAll('[id]')).find(boxed) || null;   // set, so no selector of the
+      };   // book's CSS matches differently
       const places = {};   // the title block, the contents nav and the rights line: the element each destination is written for
       for (const ident of locators) {
-        const found = place(document.getElementById(ident), 'mdb-' + ident.toLowerCase());
+        const found = place(document.getElementById(ident));
         if (found) {
           places[ident] = found.id;
           hide(found.id);
@@ -92,8 +89,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const a = value.trim();
           return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
         };
-        const inks = (el, style) => {   // its text is drawn: a visible fill colour, no zero opacity on it or above it, and no
-          if (alpha(style.webkitTextFillColor) === 0 || flat(el)) return false;   // transform that leaves it no area
+        const inks = (el, style) => {   // its text is drawn: a visible fill colour, or a visible stroke or shadow around a clear
+          const painted = alpha(style.webkitTextFillColor) > 0 || parseFloat(style.webkitTextStrokeWidth) > 0   // fill; no
+            && alpha(style.webkitTextStrokeColor) > 0 || style.textShadow !== 'none';   // zero opacity on it or above it, and no
+          if (!painted || flat(el)) return false;   // transform that leaves it no area
           for (let e = el; e; e = e.parentElement) if (parseFloat(getComputedStyle(e).opacity) === 0) return false;
           return parseFloat(style.opacity) !== 0;
         };
@@ -102,6 +101,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const value = style.content;
           if (!value || value === 'none' || value === 'normal' || style.display === 'none' || style.visibility !== 'visible'
               || !inks(el, style)) return;
+          const args = ((/\(([^()]*)\)/.exec(style.transform) || [, ''])[1]).split(',').map(Number);   // the pseudo-element's own
+          const [a, b, c, d] = args.length === 16 ? [args[0], args[1], args[4], args[5]] : args;   // drawing: no size, its own clip
+          if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
+              !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)) return;   // or a mask on it
+          if (['absolute', 'fixed'].includes(style.position)) {   // or above it, a collapsing transform: no words. Placed apart
+            unresolved.push(`${which} with position: ${style.position}`);   // from the flow, where it lands cannot be told here
+            return;
+          }
           let i = 0, printed = '';
           while (i < value.length) {
             const c = value[i];
@@ -144,7 +151,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
               if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
-                add(n.data);
+                add(n.data, alpha(style.webkitTextFillColor) === 0);   // only a stroke or a shadow: drawn as shapes, no text to find
                 shows = true;
               }
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
@@ -228,7 +235,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const id = a.getAttribute('data-mdb-dest');
         let target = null;
         try { target = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); } catch (_) {}
-        const anchor = place(target, id);   // the heading itself, or for one with no box the first element in it with one
+        const anchor = place(target);   // the heading itself, or for one with no box the first element in it with a box and an id
         if (anchor) hide(anchor.id);
         const name = a.cloneNode(true);   // the entry's full text, an image by its alt text, to name it in a message
         name.querySelectorAll('annotation, script, style').forEach(n => n.remove());
