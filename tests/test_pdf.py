@@ -580,7 +580,8 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
     ('nav#TOC a::before { content: "Ghostword"; position: relative; left: 9999px; }', '::before moved by position: relative'),
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(9999px); }', '::before moved by'),
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; translate: 9999px; }', '::before moved by'),   # the
-])   # individual transform properties move it too
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(0); }', '::before moved by'),
+])   # individual transform properties move it too; even the identity puts its text after the contents in the page text
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match=re.escape(f'«First» shows text that print CSS generates with {named}')):

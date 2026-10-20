@@ -121,7 +121,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                             bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // and above
           const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset
-              || ['transform', 'translate', 'rotate', 'scale'].some(k => style[k] && style[k] !== 'none')) {
+              || ['transform', 'translate', 'rotate', 'scale'].some(k => style[k] && style[k] !== 'none')) {   // any transform, the
+            // identity included, paints it in a layer of its own, whose text Chrome writes after the page's flow
             unresolved.push(`${which} moved by position: ${style.position} or a transform`);   // moved apart from the flow,
             return;   // where it lands cannot be told here (a pseudo-element has no box to measure)
           }
