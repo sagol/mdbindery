@@ -671,6 +671,10 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; height: 0; overflow: clip; }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; box-sizing: border-box; width: 2px; border-left: 1px solid; '
      'border-right: 1px solid; overflow: hidden; }', ['Map of Mars today', 'Second']),   # a border box with no padding box left
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; padding-right: 100px; overflow: clip; '
+     'overflow-clip-margin: content-box; white-space: nowrap; }', ['Map of Mars today', 'Second']),   # clipped at its empty content box
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; height: 0; padding-bottom: 40px; overflow: clip; '
+     'overflow-clip-margin: content-box; }', ['Map of Mars today', 'Second']),
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
@@ -707,6 +711,8 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
      'white-space: nowrap; }', '::before clipping its own overflow'),   # no content width, but its padding box shows the text
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: clip; overflow-clip-margin: 100px; }',
      '::before clipping its own overflow'),   # a clip margin gives it room too
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; padding-right: 100px; overflow: clip; '
+     'overflow-clip-margin: content-box 20px; white-space: nowrap; }', '::before clipping its own overflow'),   # content box, grown
 ])   # individual transform properties move it too; even the identity puts its text after the contents in the page text
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -724,7 +730,9 @@ def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, bro
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; overflow-clip-margin: 150px; white-space: nowrap; }',
     'nav#TOC li:first-child a { display: inline-block; width: 24px; border-left: 40px solid; overflow: hidden; white-space: nowrap; '
     'transform: scale(0.5); transform-origin: 0 0; }',   # scaled, and still too narrow
-])   # a clip margin moves only an overflow: clip edge
+    'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow-x: clip; overflow-y: visible; overflow-clip-margin: 150px; '
+    'white-space: nowrap; }',   # Chrome 148 and 155 ignore the margin when only one axis clips: the ink stops at the box
+])   # a clip margin moves only an overflow: clip edge, and only with both axes clipped
 def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match='«First words here» is only partly visible in the printed contents'):

@@ -138,11 +138,17 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // a collapsing transform, a filter that clears it
           if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['inline', 'contents'].includes(style.display)) {
             const n = k => parseFloat(style[k]) || 0, border = style.boxSizing === 'border-box';   // the edge it clips at is
-            const across = border ? n('width') - n('borderLeftWidth') - n('borderRightWidth')   // its padding box, grown by
-              : n('width') + n('paddingLeft') + n('paddingRight');   // overflow-clip-margin where both axes clip
-            const down = border ? n('height') - n('borderTopWidth') - n('borderBottomWidth') : n('height') + n('paddingTop') + n('paddingBottom');
-            const margin = style.overflowX === 'clip' && style.overflowY === 'clip'
-              ? parseFloat((style.overflowClipMargin || '').split(/\s+/).find(t => /^-?[\d.]+px$/.test(t))) || 0 : 0;
+            let across = border ? n('width') - n('borderLeftWidth') - n('borderRightWidth')   // its padding box, or with both
+              : n('width') + n('paddingLeft') + n('paddingRight');   // axes clipped the box overflow-clip-margin names, grown
+            let down = border ? n('height') - n('borderTopWidth') - n('borderBottomWidth') : n('height') + n('paddingTop') + n('paddingBottom');
+            let margin = 0;   // by its length (as clipEdge does for an element)
+            if (style.overflowX === 'clip' && style.overflowY === 'clip') {
+              const parts = (style.overflowClipMargin || '').trim().split(/\s+/);
+              const kind = parts.find(t => t.endsWith('-box'));
+              margin = parseFloat(parts.find(t => /^-?[\d.]+px$/.test(t))) || 0;
+              if (kind === 'content-box') { across -= n('paddingLeft') + n('paddingRight'); down -= n('paddingTop') + n('paddingBottom'); }
+              if (kind === 'border-box') { across += n('borderLeftWidth') + n('borderRightWidth'); down += n('borderTopWidth') + n('borderBottomWidth'); }
+            }
             if ((style.overflowX !== 'visible' && across + 2 * margin <= 0) || (style.overflowY !== 'visible' && down + 2 * margin <= 0)) return;
             unresolved.push(`${which} clipping its own overflow`);   // a box with room: how much of its text shows cannot be
             return;   // told here, since a pseudo-element's text has no box of its own to measure
@@ -256,7 +262,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const x = k => (parseFloat(style[k]) || 0) * sx, y = k => (parseFloat(style[k]) || 0) * sy;   // lengths are in its own
           let edge = {left: r.left + x('borderLeftWidth'), top: r.top + y('borderTopWidth'),   // units: a transform on it or
                       right: r.right - x('borderRightWidth'), bottom: r.bottom - y('borderBottomWidth')};   // above scales them
-          if (style.overflowX === 'clip' && style.overflowY === 'clip') {   // as it scales its measured box
+          if (style.overflowX === 'clip' && style.overflowY === 'clip') {   // as it scales its measured box. Chrome (148,
+            // 155) applies the margin only when both axes clip: with one, the ink stops at the padding edge
             const parts = (style.overflowClipMargin || '').trim().split(/\s+/);
             const kind = parts.find(t => t.endsWith('-box')), grow = parseFloat(parts.find(t => /^-?[\d.]+px$/.test(t))) || 0;
             if (kind === 'border-box') edge = {left: r.left, top: r.top, right: r.right, bottom: r.bottom};
