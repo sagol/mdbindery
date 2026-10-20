@@ -52,7 +52,42 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         text.querySelectorAll('annotation, script, style').forEach(n => n.remove());   // no TeX annotation, script or style
         text.querySelectorAll('br').forEach(n => n.replaceWith(' '));
         let label = '', shows = false;   // the bookmark is what the printed entry shows: text that lays out and is visible
-        const walk = node => {           // (a display: contents link has no box of its own), and an image by its alt text
+        const unresolved = [];           // (a display: contents link has no box of its own), and an image by its alt text
+        const generated = (el, which) => {   // the words a visible ::before or ::after prints: its strings and attr() values;
+          const style = getComputedStyle(el, which);   // a counter or a quote mark is not readable here, so it is reported
+          const value = style.content;
+          if (!value || value === 'none' || value === 'normal' || style.display === 'none' || style.visibility !== 'visible') return;
+          let i = 0, words = '';
+          while (i < value.length) {
+            const c = value[i];
+            if (c === '"' || c === "'") {
+              let j = i + 1;
+              while (j < value.length && value[j] !== c) {
+                const hex = value[j] === '\\' && /^[0-9a-fA-F]{1,6} ?/.exec(value.slice(j + 1));
+                if (hex) { words += String.fromCodePoint(parseInt(hex[0], 16)); j += 1 + hex[0].length; }
+                else if (value[j] === '\\') { words += value[j + 1] || ''; j += 2; }
+                else words += value[j++];
+              }
+              i = j + 1;
+            } else if (c === '/') {
+              break;   // the alternative text after it is for speech, not print
+            } else if (/\s/.test(c)) {
+              i++;
+            } else {
+              const part = /^[-\w]+(\((?:[^()"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\([^()]*\))*\))?/.exec(value.slice(i));
+              if (!part) { unresolved.push(value); return; }
+              const name = part[0].split('(')[0].toLowerCase(), args = part[1] ? part[1].slice(1, -1).trim() : '';
+              if (name === 'attr' && /^[-\w]+$/.test(args)) words += el.getAttribute(args) || '';
+              else if (['attr', 'counter', 'counters', 'open-quote', 'close-quote'].includes(name)) unresolved.push(part[0]);
+              // no-open-quote and no-close-quote print nothing; url(), gradients and image sets are images, no words
+              i += part[0].length;
+            }
+          }
+          if (words.trim()) shows = true;
+          label += words;
+        };
+        const walk = node => {
+          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
               if (!n.data.trim()) { label += ' '; continue; }   // a space that wraps a line may have no box of its own
@@ -72,10 +107,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               }
             }
           }
+          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
         walk(a);
         return {id, label: label.replace(/\s+/g, ' ').trim(), text: text.textContent.replace(/\s+/g, ' ').trim(),
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}), listed: shows};
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}), listed: shows, unresolved};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,

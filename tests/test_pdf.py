@@ -1,5 +1,6 @@
 """PDF integration and EPUB compatibility checks. Never build source fixtures in place."""
 import json
+import re
 import urllib.parse
 import os
 from pathlib import Path
@@ -449,6 +450,32 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']
     assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == labels
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, labels', [
+    ('nav#TOC a::before { content: "Chapter "; }', ['Chapter Map of Mars today', 'Chapter Second']),
+    ('nav#TOC em::after { content: "\\201C!\\201D" " " attr(class); }', ['Map of Mars“!” today', 'Second']),
+    ('nav#TOC a::after { content: url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7") " \\"x\\"" / "spoken only"; }', ['Map of Mars today "x"', 'Second "x"']),
+    ('nav#TOC a::before { content: "Chapter "; visibility: hidden; }', ['Map of Mars today', 'Second']),
+    ('nav#TOC a::before { content: "Chapter "; display: none; }', ['Map of Mars today', 'Second']),
+])
+def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_path, browser, css, labels):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == labels
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, named', [
+    ('nav#TOC li { counter-increment: entry; } nav#TOC a::before { content: counter(entry) ". "; }', 'counter(entry)'),
+    ('nav#TOC a::before { content: open-quote; } nav#TOC a::after { content: close-quote; }', 'open-quote'),
+])
+def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    with pytest.raises(BuildError, match=re.escape(f'«First» shows text that print CSS generates with {named}')):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
 
 
 @needs_pandoc

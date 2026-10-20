@@ -93,6 +93,8 @@ def test_join_entries_takes_the_pages_labels_and_stops_on_a_hidden_heading():
         pdfnav.join_entries(entries, [page[0], dict(page[1], printed=False)])
     with pytest.raises(BuildError, match='«B» is hidden in the printed contents'):
         pdfnav.join_entries(entries, [page[0], dict(page[1], listed=False)])
+    with pytest.raises(BuildError, match=r'«B» shows text that print CSS generates with counter\(n\)'):
+        pdfnav.join_entries(entries, [page[0], dict(page[1], unresolved=['counter(n)'])])
 
 
 def make_pdf(path, pages, dests=()):

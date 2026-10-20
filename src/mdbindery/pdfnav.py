@@ -128,6 +128,9 @@ def join_entries(entries, page):
         if not seen.get('listed', True):
             raise BuildError(f"contents entry «{named}» is hidden in the printed contents, so the bookmarks would "
                              'not match it; show it there, or keep its heading out of the contents with a lower options.toc_depth')
+        if seen.get('unresolved'):
+            raise BuildError(f"contents entry «{named}» shows text that print CSS generates with {', '.join(seen['unresolved'])}, which "
+                             'the bookmark cannot repeat; write that text into the heading, or generate only strings and attr() there')
         if not seen.get('printed'):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
