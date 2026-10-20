@@ -57,10 +57,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           label += piece;
           if (!alt) words += piece;
         };
-        const alpha = color => {   // a computed colour's alpha: rgb(r, g, b) is opaque, rgba(), rgb(… / a) and color() carry it
-          if (color === 'transparent') return 0;
-          const parts = color.match(/-?[\d.]+%?/g) || [];
-          return parts.length >= 4 ? parseFloat(parts[3]) / (parts[3].endsWith('%') ? 100 : 1) : 1;
+        const alpha = color => {   // a computed colour's alpha, from its own arguments: after a slash (rgb(… / a), color(space … / a),
+          if (color === 'transparent') return 0;   // oklch(… / a)), or the fourth of rgba(r, g, b, a); none of those is opaque
+          const args = /\(([^()]*)\)\s*$/.exec(color);
+          const value = !args ? null : args[1].includes('/') ? args[1].split('/').pop()
+            : args[1].split(',').length === 4 ? args[1].split(',')[3] : null;
+          if (value === null) return 1;
+          const a = value.trim();
+          return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
         };
         const inks = (el, style) => {   // its text is drawn: a visible fill colour, and no zero opacity on it or above it
           if (alpha(style.webkitTextFillColor) === 0) return false;

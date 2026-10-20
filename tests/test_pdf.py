@@ -498,11 +498,23 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
 @needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC li:first-child a { opacity: 0; }', 'nav#TOC li:first-child { opacity: 0; }',
                                  'nav#TOC li:first-child a { color: transparent; }', 'nav#TOC li:first-child a { color: rgb(0 0 0 / 0%); }',
-                                 'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; }'])
+                                 'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; }',
+                                 'nav#TOC li:first-child a { color: color(display-p3 1 0 1 / 0); }',
+                                 'nav#TOC li:first-child a { color: oklch(0.5 0.1 120 / 0); }'])
 def test_pdf_contents_entry_drawn_invisibly_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match='«First» is hidden in the printed contents'):
         build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
+@pytest.mark.parametrize('color', ['color(display-p3 1 0 0)', 'color(display-p3 0 0 0 / 0.5)', 'oklch(0.4 0.1 30)', 'rgb(10 20 30 / 60%)'])
+def test_pdf_contents_entry_in_any_visible_colour_is_listed(tmp_path, browser, color):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=f'nav#TOC a {{ color: {color}; }}'), out_dir=tmp_path / 'out',
+                    output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['First', 'Second']
 
 
 @needs_pandoc
