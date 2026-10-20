@@ -147,12 +147,13 @@ The site provides a [documentation index](https://sagol.github.io/mdbindery/llms
 
 If an author gave you mdbindery's link together with links to other book tools, and some of those repositories are private, mdbindery is one part of a larger toolset. Its main repository's setup guide installs everything, mdbindery included, with this installer at a pinned release. For the book toolset that is [Mdnarra](https://github.com/sagol/Mdnarra)'s `docs/SETUP.md`.
 
-The guide is private too, so read it with the author's read-only token, which the author keeps in a file only they can read, such as `~/.github-token`. Never put a token in a URL, in a command's arguments, in a file you create, or in a message.
+The guide is private too, so read it with the author's read-only token, which the author keeps in a file only they can read, such as `~/.github-token`. Never put a token in a URL, in a command's arguments, in a file you create, or in a message. The commands below are for bash or zsh, as the toolset's setup is (Linux; macOS untested).
 
 The simplest way is gh. It keeps the token in its own store (the system keyring, or on a server without one its `hosts.yml`, readable only by you), the one place the setup guide keeps it too, since the clones need it next:
 
 ```bash
 sudo apt-get install -y gh                       # Debian and Ubuntu; elsewhere see https://github.com/cli/cli#installation
+unset GH_TOKEN GITHUB_TOKEN                      # an inherited token would take precedence over the author's
 gh auth login --with-token < ~/.github-token
 gh api repos/sagol/Mdnarra/contents/docs/SETUP.md -H 'Accept: application/vnd.github.raw'
 ```
