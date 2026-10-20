@@ -489,6 +489,16 @@ def test_pdf_a_title_print_css_generates_is_on_the_title_page(tmp_path, browser)
 
 
 @needs_pandoc
+def test_pdf_the_title_must_be_drawn_by_the_title_itself(tmp_path, browser):
+    css = ('header#title-block-header .title { font-size: 0; } '   # the title element draws other words; the title's own
+           'header#title-block-header .title::before { content: "Unrelated"; font-size: 16px; }')   # are in the rights line
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, css=css, rights='Навигация & <тест> © 2026'), out_dir=tmp_path / 'out',
+                    output_format='pdf', log=quiet)
+    assert not summary['ok'] and 'the title is not on the title page' in summary['gates']['pdf']['front_matter']['problems']
+
+
+@needs_pandoc
 def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box
@@ -564,6 +574,8 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword "; filter: opacity(0); }', ['Map of Mars today', 'Second']),   # its own filter
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
+    ('nav#TOC a { text-transform: uppercase; }', ['MAP OF MARS TODAY', 'SECOND']),   # the case the contents print
+    ('nav#TOC a { text-transform: capitalize; }', ['Map Of Mars Today', 'Second']),
 ])
 def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_path, browser, css, labels):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}

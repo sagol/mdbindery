@@ -91,8 +91,22 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
         // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
         const unresolved = [];   // ::before and ::after included
-        const add = (piece, alt, outline = false) => {   // runs: its printed text in order, each piece with whether it is
-          label += piece;   // drawn only as an outline (Chrome writes such a piece twice in the page text)
+        const cased = (piece, style, el) => {   // as text-transform prints it, in the element's language
+          const t = style ? style.textTransform : 'none', lang = ((el && el.closest('[lang]')) || document.documentElement).lang || undefined;
+          if (t === 'uppercase') return piece.toLocaleUpperCase(lang);
+          if (t === 'lowercase') return piece.toLocaleLowerCase(lang);
+          if (t !== 'capitalize') return piece;
+          let start = !label || /\s$/.test(label);   // the first letter or digit of each word; a letter is capitalized
+          return Array.from(piece).map(c => {
+            if (/\s/.test(c)) { start = true; return c; }
+            if (!start || !/[\p{L}\p{N}]/u.test(c)) return c;
+            start = false;
+            return /\p{L}/u.test(c) ? c.toLocaleUpperCase(lang) : c;
+          }).join('');
+        };
+        const add = (piece, alt, outline = false, style = null, el = null) => {   // runs: its printed text in order, each piece
+          piece = cased(piece, style, el);   // with whether it is drawn only as an outline (Chrome writes such a piece twice)
+          label += piece;
           if (!alt) words += piece;
           if (!alt || outline) runs.push([piece, outline]);
         };
@@ -154,7 +168,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (printed.trim()) shows = true;
           outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // an outline or a shadow only: no words to find
-          add(printed, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0);
+          add(printed, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0, style, el);
         };
         const hides = el => {   // nothing inside it prints, its ::before and ::after included, whatever their own style says
           const style = getComputedStyle(el);
@@ -173,7 +187,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
                 outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // only a stroke or a shadow: Chrome may write its
-                add(n.data, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0);   // text twice
+                add(n.data, alpha(style.webkitTextFillColor) === 0, alpha(style.webkitTextFillColor) === 0, style, n.parentElement);
                 shows = true;
               }
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
@@ -251,9 +265,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         if (el === nav || el.contains(nav)) break;
         before += ' ' + scan(el).words;
       }
-      const element = selector => {   // a front-matter element as printed: whether anything of it draws
-        const el = document.querySelector(selector);
-        return el ? {shows: scan(el).shows} : null;   // text it generates prints too
+      const element = selector => {   // a front-matter element as printed: whether anything of it draws, and the words it
+        const el = document.querySelector(selector);   // draws, generated text included
+        if (!el) return null;
+        const seen = scan(el);
+        return {shows: seen.shows, words: seen.words};
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};

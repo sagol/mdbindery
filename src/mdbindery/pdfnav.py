@@ -453,20 +453,23 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                     problems.append(f'the contents link to {name!r} on page {index + 1} does not open its heading\'s page')
     outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
     elements = front or {}   # the element itself prints, as the page reported it: its words elsewhere on the page are no proof
-    drawn = lambda part: not elements.get(part) or elements[part].get('shows')
+
+    def drawn(part, want):   # the element draws, and the words it draws hold the configured text
+        seen = elements.get(part)
+        return not seen or bool(seen.get('shows')) and (seen.get('words') is None or normalized(want) in normalized(seen['words']))
     front, not_applicable = [], []
     title_page = reader.get_destination_page_number(named[place(TITLE)]) if place(TITLE) in named else None
-    if title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title'):
+    if title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):
         front.append('the title is not on the title page')
     if rights:
         page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
-        if page != title_page or normalized(rights) not in texts[title_page or 0] or not drawn('rights'):
+        if page != title_page or normalized(rights) not in texts[title_page or 0] or not drawn('rights', rights):
             front.append('the rights line is not on the title page')
     else:
         not_applicable.append('rights: none configured')
     if has_nav and toc_title:
         page = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
-        if page is None or normalized(toc_title) not in texts[page] or not drawn('contents'):
+        if page is None or normalized(toc_title) not in texts[page] or not drawn('contents', toc_title):
             front.append('the contents heading is not on the first contents page')
     else:
         not_applicable.append('contents heading: ' + ('no title for this language' if has_nav else 'contents disabled or pandoc wrote no contents'))
