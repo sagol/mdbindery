@@ -310,6 +310,17 @@ def finalize(source, target, rows, meta, aliases=None):
         writer.write(out)
 
 
+def words(text):
+    """The words of a text, NFKC and case-folded, as a list: how a configured title or rights line is matched whole."""
+    return re.findall(r'[^\W_]+', unicodedata.normalize('NFKC', text or '').casefold())
+
+
+def holds(text, part):
+    """Whether text holds part's words in order, each whole: «A» is not found in «Map»."""
+    want, have = words(part), words(text)
+    return bool(want) and any(have[i:i + len(want)] == want for i in range(len(have) - len(want) + 1))
+
+
 def normalized(text):
     """Letters and digits only, NFKC, case-folded: how labels, titles and rights are found in a page's text."""
     return ''.join(c for c in unicodedata.normalize('NFKC', text or '').casefold() if c.isalnum())
@@ -454,9 +465,10 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
     outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
     elements = front or {}   # the element itself prints, as the page reported it: its words elsewhere on the page are no proof
 
-    def drawn(part, want):   # the element draws, and the words it draws hold the configured text
+    def drawn(part, want):   # the element draws, and the words it draws hold the configured text, each whole (the page's
+        # extracted text may split a word, so the page is checked by its letters; the element's own words come from the DOM)
         seen = elements.get(part)
-        return not seen or bool(seen.get('shows')) and (seen.get('words') is None or normalized(want) in normalized(seen['words']))
+        return not seen or bool(seen.get('shows')) and (seen.get('words') is None or holds(seen['words'], want))
     front, not_applicable = [], []
     title_page = reader.get_destination_page_number(named[place(TITLE)]) if place(TITLE) in named else None
     if title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):

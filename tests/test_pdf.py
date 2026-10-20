@@ -558,6 +558,15 @@ def test_pdf_capitalize_after_a_combining_mark_matches_print(tmp_path, browser, 
 
 
 @needs_pandoc
+def test_pdf_the_title_element_must_hold_the_title_words_whole(tmp_path, browser):
+    css = ('header#title-block-header .title { font-size: 0; } '   # its letters run on into a longer word: «тест» is
+           'header#title-block-header .title::before { content: "Навигация тестовая"; font-size: 16px; }')   # not «тестовая»
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert not summary['ok'] and 'the title is not on the title page' in summary['gates']['pdf']['front_matter']['problems']
+
+
+@needs_pandoc
 def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box
@@ -681,6 +690,7 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
     'nav#TOC li:first-child { height: 0; overflow: hidden; }',
     'nav#TOC li::marker { content: counter(list-item) ". "; } nav#TOC li:first-child { height: 0; overflow: hidden; }',   # a marker
     'nav#TOC li:first-child a { display: block; height: 0; overflow: hidden; }',   # that skips the contents text check
+    'nav#TOC li:first-child a { display: block; text-indent: -9999px; }',   # its first line, ::before included, off the page
 ])
 def test_pdf_generated_text_inside_a_clipped_entry_does_not_list_it(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -747,6 +757,9 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('body > h1 img { scale: 0 1; rotate: 45deg; }', "points to a heading that isn't printed"),   # it as transform does
     ('nav#TOC img { object-fit: none; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # its content
     ('body > h1 img { object-fit: none; object-position: 9999px 50%; }', "points to a heading that isn't printed"),   # outside
+    ('nav#TOC img { object-fit: fill; object-position: 9999px 50%; }', 'is hidden in the printed contents'),   # fill moves too
+    ('nav#TOC img { box-sizing: content-box; width: 20px; height: 20px; padding: 10px; object-fit: none; object-position: 25px 0; }',
+     'is hidden in the printed contents'),   # in the padding, outside the content box
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)

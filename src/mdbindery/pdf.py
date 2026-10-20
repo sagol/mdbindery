@@ -136,8 +136,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
           while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
           const r = box && box.getBoundingClientRect(), size = parseFloat(style.fontSize);   // of no height still prints its
-          if (r && !onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // overflow; then clipped by it
-                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // and above
+          const shift = (which === '::before' ? parseFloat(getComputedStyle(el).textIndent) || 0 : 0)   // overflow; a text-indent on
+            + Math.min(0, parseFloat(style.marginLeft) || 0);   // its element or a negative margin of its own moves its start
+          if (r && !onPage({left: r.left + shift, top: r.top, right: shift ? r.left + shift + size : Math.max(r.right, r.left + size),
+                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // then
+          // clipped by it and above
           const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
           if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset
               || ['transform', 'translate', 'rotate', 'scale'].some(k => style[k] && style[k] !== 'none')) {   // any transform, the
@@ -183,9 +186,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
-              if (!n.data.trim()) {   // a space that wraps a line may have no box of its own; one in an element of no size
-                if (parseFloat(getComputedStyle(n.parentElement).fontSize) > 0) add(' ');   // prints nothing between its
-                continue;   // neighbours
+              if (!n.data.trim()) {   // a space that wraps a line may have no box of its own; one in an element of no size,
+                const ps = getComputedStyle(n.parentElement);   // or one taken out of the flow, puts nothing between its neighbours
+                if (parseFloat(ps.fontSize) > 0 && !['absolute', 'fixed'].includes(ps.position) && ps.float === 'none') add(' ');
+                continue;
               }
               const range = document.createRange(), style = getComputedStyle(n.parentElement);
               range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
@@ -231,16 +235,18 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             if (/url\(|opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(getComputedStyle(e).filter)) return true;
           return false;
         };
-        const inside = img => {   // its replaced content overlaps its own box, after object-fit and object-position; a
-          const s = getComputedStyle(img), bw = img.clientWidth, bh = img.clientHeight;   // position that cannot be read
-          const nw = img.naturalWidth, nh = img.naturalHeight;   // (calc()) counts as outside
-          if (s.objectFit === 'fill' || !nw || !nh) return true;
+        const inside = img => {   // its replaced content overlaps its own content box (padding left out), after object-fit
+          const s = getComputedStyle(img), px0 = parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);   // and object-position
+          const bw = img.clientWidth - px0, bh = img.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
+          const nw = img.naturalWidth, nh = img.naturalHeight;   // in every mode, fill included; a position that cannot be
+          if (!nw || !nh) return true;   // read (calc()) counts as outside
           const k = {contain: Math.min(bw / nw, bh / nh), cover: Math.max(bw / nw, bh / nh), none: 1,
-                     'scale-down': Math.min(1, bw / nw, bh / nh)}[s.objectFit] ?? 1;
+                     'scale-down': Math.min(1, bw / nw, bh / nh)}[s.objectFit];
+          const cw = s.objectFit === 'fill' || k === undefined ? bw : nw * k, ch = s.objectFit === 'fill' || k === undefined ? bh : nh * k;
           const [px, py = px] = s.objectPosition.split(/\s+/);
           const at = (v, free) => v.endsWith('%') ? free * parseFloat(v) / 100 : parseFloat(v);
-          const x = at(px, bw - nw * k), y = at(py, bh - nh * k);
-          return x < bw && x + nw * k > 0 && y < bh && y + nh * k > 0;
+          const x = at(px, bw - cw), y = at(py, bh - ch);
+          return bw > 0 && bh > 0 && x < bw && x + cw > 0 && y < bh && y + ch > 0;
         };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
           && !filtered(img) && inside(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
