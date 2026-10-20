@@ -405,7 +405,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     for line in result.stderr.splitlines():
         log(f'  pandoc: {line}')
     rights = cfg.meta.get('rights') or ''
-    entries, has_nav = pdfnav.prepare(html_file, rights)   # the contents links marked, and the rights line
+    entries, has_nav = pdfnav.prepare(html_file, rights)   # the contents entries, and the rights line
     script = work / 'pdf.js'
     script.write_text(JS, encoding='utf-8')
     text_file = work / 'pdf-text.txt'
@@ -420,7 +420,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     jobs = {'html': str(html_file), 'output': str(temporary), 'reference': str(reference), 'text': str(text_file), 'entries': str(entries_file),
             'files': [str(p) for p in [html_file, pdf_css, print_css, *staged.values()]],
             'args': args, 'page_size': settings['page_size'], 'page_numbers': settings['page_numbers'],
-            'margin': f'{settings["margin_mm"]}mm', 'locators': [pdfnav.TITLE, pdfnav.CONTENTS, pdfnav.RIGHTS]}
+            'margin': f'{settings["margin_mm"]}mm', 'locators': [pdfnav.TITLE, pdfnav.CONTENTS] + ([pdfnav.RIGHTS] if rights else [])}
     jobs_file = work / 'pdf-jobs.json'
     jobs_file.write_text(json.dumps(jobs), encoding='utf-8')
     meta = {k: cfg.meta.get(k) or ('' if k not in ('authors', 'subjects') else []) for k in

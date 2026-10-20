@@ -1,12 +1,12 @@
-"""PDF navigation and metadata: the contents links marked and the rights line added in the print HTML, then the outline,
-Info and XMP written into Chrome's PDF, and the gates that check them in the final file.
+"""PDF navigation and metadata: the rights line added to the print HTML, then the outline, Info and XMP written into
+Chrome's PDF, and the gates that check them in the final file.
 
 The outline holds exactly pandoc's contents (nav#TOC). Each entry's destination is its heading, chosen at print time by
 the page script; for an element with no box of its own (display: contents), for which Chrome writes no destination, it
-is the first element inside that has one, given an id only where it has none. The title block, the contents nav and the
-rights line are placed the same way, from their own ids. Chrome writes a destination only for a link target, so hidden
-links to each (no annotation, tag or text) go in the document's head, where Chrome still finds them; no element is
-put in the body, where a structural selector of the book's CSS could match it."""
+is the first element inside that has both a box and an id of its own. The title block, the contents nav and the rights
+line are placed the same way, from their own ids. Chrome writes a destination only for a link target, so hidden links
+to each (no annotation, tag or text) go in the document's head, where Chrome still finds them; the page is then printed
+again without them, and a book whose CSS prints the two differently is refused."""
 import hashlib
 import html
 import re
@@ -82,19 +82,16 @@ class _Scan(HTMLParser):
 
 def prepare(path, rights):
     """Rewrite the print HTML once: the rights line, with its own id, before the title block's closing tag; each contents
-    entry's key is its place among the contents links, which the page counts the same way. Nothing goes inside a heading or among an author's
-    elements, so no structural selector of the book's CSS matches differently: the page script chooses each destination at
-    print time (the heading itself, or for one with no box the first element in it with one) and adds the hidden links
-    Chrome needs after the content. Returns the contents entries, in order, as {'depth', 'key', 'target'}, and whether
-    pandoc wrote a contents nav."""
+    entry's key is its place among the contents links, which the page counts the same way. Nothing goes inside a heading
+    or among an author's elements: the page script chooses each destination at print time (the heading itself, or for one
+    with no box the first element in it with a box and an id) and puts the hidden links Chrome needs in the head. Returns
+    the contents entries, in order, as {'depth', 'key', 'target'}, and whether pandoc wrote a contents nav."""
     text = path.read_text(encoding='utf-8')
     scan = _Scan(text)
     scan.feed(text)
     scan.close()
-    generated = {RIGHTS}   # the id the PDF's navigation adds (the rights line); contents entries are keyed mdb-dest-<n>
-    reserved = sorted(i for i in scan.ids if i in generated or re.fullmatch(r'mdb-dest-\d+', i))
-    if reserved:
-        raise BuildError(f'the book uses the id {reserved[0]!r}, which the PDF\'s navigation adds; rename it')
+    if rights and RIGHTS in scan.ids:   # the only id the PDF's navigation adds (the contents entries' mdb-dest-<n> are keys
+        raise BuildError(f'the book uses the id {RIGHTS!r}, which the PDF\'s rights line takes; rename it')   # for the page only)
     if scan.header is None or scan.header_close is None:
         raise BuildError('the print document has no title block (header#title-block-header)')
     edits, entries = [], []
