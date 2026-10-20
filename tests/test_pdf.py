@@ -410,9 +410,11 @@ def test_pdf_navigation_gives_no_element_an_id_the_books_css_could_see(tmp_path,
 
 
 @needs_pandoc
-def test_pdf_outlined_contents_text_counts_as_drawn(tmp_path, browser):
+@pytest.mark.parametrize('css', ['nav#TOC a { -webkit-text-fill-color: transparent; -webkit-text-stroke: 1px black; }',
+                                 'nav#TOC a::before { content: "Prefixword "; -webkit-text-fill-color: transparent; '
+                                 '-webkit-text-stroke: 1px black; }'])   # a clear fill, a visible stroke, as text or generated
+def test_pdf_outlined_contents_text_counts_as_drawn(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
-    css = 'nav#TOC a { -webkit-text-fill-color: transparent; -webkit-text-stroke: 1px black; }'   # a clear fill, a visible stroke
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
 
@@ -529,6 +531,8 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
                                  'nav#TOC li:first-child a { position: absolute; left: 9999px; }',
                                  'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
                                  'nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }',
+                                 'nav#TOC li:first-child a { filter: opacity(0); }',
+                                 'nav#TOC li:first-child a { -webkit-text-fill-color: transparent; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0); }',
                                  'nav#TOC li:first-child a { color: oklch(0.5 0.1 120 / 0); }'])
 def test_pdf_contents_entry_drawn_invisibly_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -568,6 +572,8 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { clip-path: inset(50%); }', 'is hidden in the printed contents'),
     ('nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }', 'is hidden in the printed contents'),
     ('nav#TOC img { position: absolute; left: 9999px; }', 'is hidden in the printed contents'),   # past the printable width
+    ('nav#TOC img { filter: opacity(0); }', 'is hidden in the printed contents'),   # a filter's result cannot be told
+    ('body > h1 img { filter: opacity(0); }', "points to a heading that isn't printed"),
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -673,7 +679,7 @@ def test_pdf_custom_list_counters_leave_the_contents_text_unchecked(tmp_path, br
     css = 'nav#TOC ul { list-style-type: decimal; } nav#TOC li { counter-increment: list-item 2; }'   # it prints 2 and 4
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']
-    assert summary['ok'] and any('list markers' in n for n in outline['not_checked']), outline
+    assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
 
 
 @needs_pandoc

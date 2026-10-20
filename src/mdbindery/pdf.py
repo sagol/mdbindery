@@ -74,7 +74,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         }
       }
       const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
-        let label = '', words = '', shows = false;   // text), whether anything shows, and generated text no page can repeat;
+        let label = '', words = '', shows = false, outlined = false;   // text), whether anything shows, whether text is drawn
+        // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
         const unresolved = [];   // without pseudo, ::before and ::after are left out
         const add = (piece, alt) => {
           label += piece;
@@ -90,9 +91,12 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
         };
         const inks = (el, style) => {   // its text is drawn: a visible fill colour, or a visible stroke or shadow around a clear
-          const painted = alpha(style.webkitTextFillColor) > 0 || parseFloat(style.webkitTextStrokeWidth) > 0   // fill; no
-            && alpha(style.webkitTextStrokeColor) > 0 || style.textShadow !== 'none';   // zero opacity on it or above it, and no
-          if (!painted || flat(el)) return false;   // transform that leaves it no area
+          const shadows = style.textShadow === 'none' ? [] : style.textShadow.match(/(?:rgba?|hsla?|color|oklch|oklab|lab|lch)\([^()]*\)|transparent/g) || [];
+          const painted = alpha(style.webkitTextFillColor) > 0 || parseFloat(style.webkitTextStrokeWidth) > 0   // fill (a shadow
+            && alpha(style.webkitTextStrokeColor) > 0 || shadows.some(c => alpha(c) > 0);   // counts by its colour); no zero
+          // opacity on it or above it, and no
+          if (!painted || flat(el)) return false;   // transform that leaves it no area, nor a filter that zeroes its opacity
+          for (let e = el; e; e = e.parentElement) if (/opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(getComputedStyle(e).filter)) return false;
           for (let e = el; e; e = e.parentElement) if (parseFloat(getComputedStyle(e).opacity) === 0) return false;
           return parseFloat(style.opacity) !== 0;
         };
@@ -136,7 +140,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             }
           }
           if (printed.trim()) shows = true;
-          add(printed);
+          outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // an outline or a shadow only: no words to find
+          add(printed, alpha(style.webkitTextFillColor) === 0);
         };
         const hides = el => {   // nothing inside it prints, its ::before and ::after included, whatever their own style says
           const style = getComputedStyle(el);
@@ -151,7 +156,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
               if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
                   && inks(n.parentElement, style) && !masked(n.parentElement)) {
-                add(n.data, alpha(style.webkitTextFillColor) === 0);   // only a stroke or a shadow: drawn as shapes, no text to find
+                outlined = outlined || alpha(style.webkitTextFillColor) === 0;   // only a stroke or a shadow: Chrome may write its
+                add(n.data, alpha(style.webkitTextFillColor) === 0);   // text twice, or not at all, so it is no word to find
                 shows = true;
               }
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
@@ -185,12 +191,14 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return box.right > box.left && box.bottom > box.top && box.right > 0 && box.bottom > 0
             && box.left < document.documentElement.clientWidth;
         };
+        const filtered = el => { for (let e = el; e; e = e.parentElement) if (getComputedStyle(e).filter !== 'none') return true; return false; };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
-          && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not transparent, an area left
+          && !filtered(img) && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not
+          // transparent, unfiltered (a filter's result cannot be told, and its alt text is no text to find), an area left
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
-        return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved};
+        return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved, outlined};
       };
       const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
         const li = a.closest('li');   // ::marker string, nothing for a bullet; null where it cannot be told
@@ -243,7 +251,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
         return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
           name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
-          marker: marker(a),
+          marker: marker(a), outlined: entry.outlined,
           printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows,
           placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};
       }),
@@ -421,7 +429,8 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         check = validate_pdf(final, text_file.read_text(encoding='utf-8'), cfg.opts)
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights, places=places,
                                                        printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
-                                                       markers=[e['marker'] for e in entries], before=reported['before'],
+                                                       markers=[None if e.get('outlined') else e['marker'] for e in entries],
+                                                       before=reported['before'],
                                                        page_numbers=settings['page_numbers'], front=reported['front'],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has

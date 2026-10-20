@@ -274,4 +274,4 @@ def test_the_contents_gate_skips_a_title_block_it_shares_a_page_with(tmp_path):
 def test_the_contents_gate_does_not_guess_markers_it_cannot_spell(tmp_path):
     pages = [['cover'], ['Title'], ['Contents', 'alpha First'], ['First']]
     problems, skipped = contents_problems(tmp_path, pages, [('First', 3)], ['First'], [None])
-    assert problems == [] and any('list markers' in n for n in skipped)
+    assert problems == [] and any('list marker' in n for n in skipped)

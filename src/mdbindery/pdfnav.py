@@ -137,7 +137,8 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
-        out.append(dict(e, anchor=seen.get('anchor') or e['key'], marker=seen.get('marker', ''), label=seen.get('label', ''),
+        out.append(dict(e, anchor=seen.get('anchor') or e['key'], marker=seen.get('marker', ''), outlined=seen.get('outlined', False),
+                        label=seen.get('label', ''),
                         text=seen.get('text', seen.get('label', '')),
                         words=seen.get('words', seen.get('label', ''))))
     return out
@@ -342,8 +343,8 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         pages = '' if first is None else f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
         matched = None
         if first is not None and markers is not None and None in markers:   # a marker the page could not spell out: no exact
-            skipped.append('the printed contents text: its list markers use counters or a style the check cannot spell out, '
-                           'so where each entry prints was not checked')   # sequence to read, and a looser one admits other text
+            skipped.append('the printed contents text: a list marker uses counters or a style the check cannot spell out, or an '
+                           'entry is drawn only as an outline, so where each entry prints was not checked')   # sequence to read
             first = None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
