@@ -439,6 +439,27 @@ def test_pdf_bookmarks_name_images_by_their_alt_text(tmp_path, browser):
 
 
 @needs_pandoc
+@pytest.mark.parametrize('css, labels', [
+    ('nav#TOC em { display: none; }', ['Map today', 'Second']),
+    ('nav#TOC em { visibility: hidden; }', ['Map today', 'Second']),
+    ('nav#TOC li:first-child a { visibility: hidden; } nav#TOC em { visibility: visible; }', ['of Mars', 'Second']),
+])
+def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browser, css, labels):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == labels
+
+
+@needs_pandoc
+def test_pdf_contents_entry_with_nothing_visible_stops_the_build(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC li:nth-child(2) a { visibility: hidden; }'   # its words still lay out, unseen
+    with pytest.raises(BuildError, match='«Second» is hidden in the printed contents'):
+        build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+
+
+@needs_pandoc
 def test_pdf_contents_entry_hidden_in_print_stops_the_build(tmp_path, browser):
     css = 'nav#TOC li:nth-child(2) { display: none; }'
     with pytest.raises(BuildError, match='«Вторая глава» is hidden in the printed contents'):

@@ -48,19 +48,34 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
         const id = a.getAttribute('data-mdb-dest');
         const anchor = document.getElementById(id);
-        const text = a.cloneNode(true);   // the word gate's extraction rule: no TeX annotation, script or style
-        text.querySelectorAll('annotation, script, style').forEach(n => n.remove());
+        const text = a.cloneNode(true);   // the heading's words for its page check, by the word gate's extraction rule:
+        text.querySelectorAll('annotation, script, style').forEach(n => n.remove());   // no TeX annotation, script or style
         text.querySelectorAll('br').forEach(n => n.replaceWith(' '));
-        const label = text.cloneNode(true);   // the bookmark also names an image by its alt text
-        label.querySelectorAll('img').forEach(n => n.replaceWith(' ' + (n.getAttribute('alt') || '') + ' '));
-        const clean = node => node.textContent.replace(/\s+/g, ' ').trim();
-        return {id, label: clean(label), text: clean(text),
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}),
-          listed: (() => {   // the entry shows in the printed contents: its contents lay out (a display: contents link
-            const range = document.createRange();   // has no box of its own) and it is not hidden
-            range.selectNodeContents(a);
-            return range.getClientRects().length > 0 && getComputedStyle(a).visibility === 'visible';
-          })()};
+        let label = '', shows = false;   // the bookmark is what the printed entry shows: text that lays out and is visible
+        const walk = node => {           // (a display: contents link has no box of its own), and an image by its alt text
+          for (const n of node.childNodes) {
+            if (n.nodeType === Node.TEXT_NODE) {
+              if (!n.data.trim()) { label += ' '; continue; }   // a space that wraps a line may have no box of its own
+              const range = document.createRange();
+              range.selectNodeContents(n);
+              if (range.getClientRects().length > 0 && getComputedStyle(n.parentElement).visibility === 'visible') {
+                label += n.data;
+                shows = true;
+              }
+            } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName)
+                       && getComputedStyle(n).display !== 'none') {
+              if (n.localName === 'br') label += ' ';
+              else if (n.localName !== 'img') walk(n);
+              else if (n.checkVisibility({visibilityProperty: true})) {
+                label += ' ' + (n.getAttribute('alt') || '') + ' ';
+                shows = true;
+              }
+            }
+          }
+        };
+        walk(a);
+        return {id, label: label.replace(/\s+/g, ' ').trim(), text: text.textContent.replace(/\s+/g, ' ').trim(),
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}), listed: shows};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,

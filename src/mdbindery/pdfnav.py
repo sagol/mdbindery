@@ -124,11 +124,12 @@ def join_entries(entries, page):
     out = []
     for e in entries:
         seen = by_id[e['anchor']]
+        named = seen.get('text') or seen.get('label', '')   # a hidden entry shows no label of its own
         if not seen.get('listed', True):
-            raise BuildError(f"contents entry «{seen.get('label', '')}» is hidden in the printed contents, so the bookmarks would "
+            raise BuildError(f"contents entry «{named}» is hidden in the printed contents, so the bookmarks would "
                              'not match it; show it there, or keep its heading out of the contents with a lower options.toc_depth')
         if not seen.get('printed'):
-            raise BuildError(f"contents entry «{seen.get('label', '')}» points to a heading that isn't printed (display: none or "
+            raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
         out.append(dict(e, label=seen.get('label', ''), text=seen.get('text', seen.get('label', ''))))
