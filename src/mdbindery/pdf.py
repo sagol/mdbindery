@@ -136,6 +136,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
               !== 'none' || collapsed(style) || masked(el)   // the pseudo-element's own drawing: no size, its own clip or mask,
               || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // a collapsing transform, a filter that clears it
+          if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['inline', 'contents'].includes(style.display)) {
+            if (parseFloat(style.width) === 0 || parseFloat(style.height) === 0) return;   // its own box of no size hides it all
+            unresolved.push(`${which} clipping its own overflow`);   // a box that may cut it: how much of its text shows cannot
+            return;   // be told here, since a pseudo-element's text has no box of its own to measure
+          }
           let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
           while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
           const r = box && box.getBoundingClientRect(), size = parseFloat(style.fontSize);   // of no height still prints its
@@ -239,13 +244,28 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           return false;
         };
+        const clipEdge = (e, style) => {   // where e clips its overflow: its padding box, or with overflow: clip on both axes
+          const r = e.getBoundingClientRect(), n = k => parseFloat(style[k]) || 0;   // the box overflow-clip-margin names (padding
+          let edge = {left: r.left + n('borderLeftWidth'), top: r.top + n('borderTopWidth'),   // by default), grown by its length
+                      right: r.right - n('borderRightWidth'), bottom: r.bottom - n('borderBottomWidth')};
+          if (style.overflowX === 'clip' && style.overflowY === 'clip') {
+            const parts = (style.overflowClipMargin || '').trim().split(/\s+/);
+            const kind = parts.find(t => t.endsWith('-box')), grow = parseFloat(parts.find(t => /^-?[\d.]+px$/.test(t))) || 0;
+            if (kind === 'border-box') edge = {left: r.left, top: r.top, right: r.right, bottom: r.bottom};
+            if (kind === 'content-box') edge = {left: edge.left + n('paddingLeft'), top: edge.top + n('paddingTop'),
+                                                right: edge.right - n('paddingRight'), bottom: edge.bottom - n('paddingBottom')};
+            edge = {left: edge.left - grow, top: edge.top - grow, right: edge.right + grow, bottom: edge.bottom + grow};
+          }
+          return edge;
+        };
         const clipped = (box, el) => {   // what is left of box after every ancestor that clips its overflow (one with a box
-          for (let e = el; e; e = e.parentElement) {   // that is not inline) and the page's printable width
-            const style = getComputedStyle(e);
+          for (let e = el; e; e = e.parentElement) {   // that is not inline), each on the axes it clips, and the page's
+            const style = getComputedStyle(e);   // printable width; overflow: clip may clip one axis and leave the other visible
+            box = {left: box.left, top: box.top, right: box.right, bottom: box.bottom};   // a DOMRect's sides are not own fields
             if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['contents', 'inline'].includes(style.display)) {
-              const outer = e.getBoundingClientRect();
-              box = {left: Math.max(box.left, outer.left), top: Math.max(box.top, outer.top),
-                     right: Math.min(box.right, outer.right), bottom: Math.min(box.bottom, outer.bottom)};
+              const edge = clipEdge(e, style);
+              if (style.overflowX !== 'visible') box = {...box, left: Math.max(box.left, edge.left), right: Math.min(box.right, edge.right)};
+              if (style.overflowY !== 'visible') box = {...box, top: Math.max(box.top, edge.top), bottom: Math.min(box.bottom, edge.bottom)};
             }
           }
           return {left: Math.max(box.left, 0), top: box.top, right: Math.min(box.right, document.documentElement.clientWidth),

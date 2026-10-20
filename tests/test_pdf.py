@@ -666,6 +666,9 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a::before { content: "Ghostword "; clip-path: inset(50%); }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword "; display: inline-block; transform: scale(0); }', ['Map of Mars today', 'Second']),
     ('nav#TOC a::before { content: "Ghostword "; filter: opacity(0); }', ['Map of Mars today', 'Second']),   # its own filter
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: hidden; }',   # its own box of no
+     ['Map of Mars today', 'Second']),   # size clips it all
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; height: 0; overflow: clip; }', ['Map of Mars today', 'Second']),
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
@@ -696,6 +699,8 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
     # in the page text, away from the entry
     ('nav#TOC a { display: inline-block; width: 80px; overflow: hidden; } nav#TOC a::after { content: "Ghost"; padding-left: 9999px; }',
      '::after moved out of view'),   # its own padding, clipped by its element
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 12px; overflow: hidden; }',
+     '::before clipping its own overflow'),   # some of it may show: which part cannot be measured
 ])   # individual transform properties move it too; even the identity puts its text after the contents in the page text
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -709,7 +714,9 @@ def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, bro
     'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }',
     'nav#TOC li:first-child { width: 12px; overflow: hidden; white-space: nowrap; }',   # cut by a parent
     'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow: hidden; }',   # its second line cut away
-])
+    'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: clip; overflow-clip-margin: 2px; white-space: nowrap; }',
+    'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: hidden; overflow-clip-margin: 150px; white-space: nowrap; }',
+])   # a clip margin moves only an overflow: clip edge
 def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match='«First words here» is only partly visible in the printed contents'):
@@ -718,7 +725,11 @@ def test_pdf_contents_entry_partly_clipped_stops_the_build(tmp_path, browser, cs
 
 @needs_pandoc
 @pytest.mark.parametrize('css', ['nav#TOC li { overflow: hidden; line-height: 1; }', 'nav#TOC a { display: inline-block; overflow: hidden; '
-                                 'line-height: 0.8; }'])   # the line box trims only the tops and bottoms of the letters
+                                 'line-height: 0.8; }',   # the line box trims only the tops and bottoms of the letters
+                                 'nav#TOC li:first-child a { display: inline-block; width: 12px; overflow: clip; overflow-clip-margin: 150px; '
+                                 'white-space: nowrap; }',   # the clip edge is 150px out: all of it shows
+                                 'nav#TOC li:first-child { width: 40px; height: 1.3em; overflow-x: clip; }'])   # clipped across only:
+                                 # the second line shows below
 def test_pdf_contents_entry_in_a_tight_clipping_line_is_listed(tmp_path, browser, css):
     files = {'01.md': '# First words here\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
