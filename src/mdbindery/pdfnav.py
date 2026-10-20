@@ -327,17 +327,15 @@ def _flat(reader, items, depth=1):
 
 def _outlined_ends(contents, at, pieces):
     """Where an entry drawn partly or wholly as an outline can end, read from at: each filled piece exactly once, each outline
-    piece twice, as Chrome writes it, or once; readings with more copies first, none when the text there is not the entry."""
-    if not pieces:
-        return [at]
-    (text, outline), rest = pieces[0], pieces[1:]
-    if not outline:
-        return _outlined_ends(contents, at + len(text), rest) if contents.startswith(text, at) else []
-    out = []
-    for copies in (2, 1):
-        if contents.startswith(text * copies, at):
-            out += [e for e in _outlined_ends(contents, at + len(text) * copies, rest) if e not in out]
-    return out
+    piece twice, as Chrome writes it, or once; the ends that consume the most text first, none when the text there is not
+    the entry. One pass over the pieces, keeping each distinct cursor once, so repeated pieces cost no more than their text."""
+    cursors = {at}
+    for text, outline in pieces:
+        step = {c + len(text) for c in cursors if contents.startswith(text, c)}
+        if outline:
+            step |= {c + 2 * len(text) for c in cursors if contents.startswith(text * 2, c)}
+        cursors = step
+    return sorted(cursors, reverse=True)
 
 
 def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None, markers=None,

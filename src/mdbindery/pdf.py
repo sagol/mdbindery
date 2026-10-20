@@ -74,6 +74,15 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           hide(found.id);
         }
       }
+      const alpha = color => {   // a computed colour's alpha, from its own arguments: after a slash (rgb(… / a), color(space … / a),
+        if (color === 'transparent') return 0;   // oklch(… / a)), or the fourth of rgba(r, g, b, a); none of those is opaque
+        const args = /\(([^()]*)\)\s*$/.exec(color);
+        const value = !args ? null : args[1].includes('/') ? args[1].split('/').pop()
+          : args[1].split(',').length === 4 ? args[1].split(',')[3] : null;
+        if (value === null) return 1;
+        const a = value.trim();
+        return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
+      };
       const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
         let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
         // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
@@ -82,15 +91,6 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           label += piece;   // drawn only as an outline (Chrome writes such a piece twice in the page text)
           if (!alt) words += piece;
           if (!alt || outline) runs.push([piece, outline]);
-        };
-        const alpha = color => {   // a computed colour's alpha, from its own arguments: after a slash (rgb(… / a), color(space … / a),
-          if (color === 'transparent') return 0;   // oklch(… / a)), or the fourth of rgba(r, g, b, a); none of those is opaque
-          const args = /\(([^()]*)\)\s*$/.exec(color);
-          const value = !args ? null : args[1].includes('/') ? args[1].split('/').pop()
-            : args[1].split(',').length === 4 ? args[1].split(',')[3] : null;
-          if (value === null) return 1;
-          const a = value.trim();
-          return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
         };
         const inks = (el, style) => {   // its text is drawn: a visible fill colour, or a visible stroke or shadow around a clear
           const shadows = style.textShadow === 'none' ? [] : style.textShadow.match(/(?:rgba?|hsla?|color|oklch|oklab|lab|lch)\([^()]*\)|transparent/g) || [];
@@ -211,9 +211,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
                 runs};
       };
       const marker = a => {   // the text its list item's marker prints before the link: a counter in the list's style, a
-        const li = a.closest('li');   // ::marker string, nothing for a bullet; null where it cannot be told
-        if (!li || getComputedStyle(li).display !== 'list-item' || li.closest('nav#TOC') === null) return '';
-        const content = getComputedStyle(li, '::marker').content;
+        const li = a.closest('li');   // ::marker string, nothing for a bullet or a marker that does not draw; null where it
+        if (!li || getComputedStyle(li).display !== 'list-item' || li.closest('nav#TOC') === null) return '';   // cannot be told
+        const drawn = getComputedStyle(li, '::marker');   // hidden, of no size, or in a clear colour: nothing printed before it
+        if (drawn.visibility !== 'visible' || parseFloat(drawn.fontSize) === 0 || alpha(drawn.color) === 0) return '';
+        const content = drawn.content;
         if (content && content !== 'normal') {
           if (content === 'none') return '';
           return /counter|quote|attr/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');

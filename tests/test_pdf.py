@@ -449,6 +449,15 @@ def test_pdf_a_heading_whose_text_is_generated_prints(tmp_path, browser):
 
 
 @needs_pandoc
+def test_pdf_a_marker_print_css_hides_is_not_expected(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC li { visibility: hidden; list-style-type: decimal; } nav#TOC a { visibility: visible; }'   # the links print,
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']   # their markers do not
+    assert summary['gates']['pdf']['outline']['not_checked'] == []
+
+
+@needs_pandoc
 def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box

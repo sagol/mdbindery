@@ -331,3 +331,10 @@ def test_the_contents_gate_does_not_take_an_outlined_entrys_copy_for_the_next_en
     assert problems == [] and any(n.startswith('«Second»: the outlined entry before it') for n in skipped)   # then «2 Second»
     pages[2] = ['Contents', '1 2 Second2 Second', '2 Second']   # twice, then the next entry: each in its own place
     assert contents_problems(tmp_path, pages, heads, listed, markers, runs=runs) == ([], [])
+
+
+def test_reading_repeated_outline_pieces_costs_their_text_not_their_combinations():
+    import time
+    started = time.monotonic()
+    ends = pdfnav._outlined_ends('a' * 48, 0, [('a', True)] * 24)   # 2**24 copy choices, 25 distinct ends
+    assert ends == list(range(48, 23, -1)) and time.monotonic() - started < 1
