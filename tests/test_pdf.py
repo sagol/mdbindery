@@ -480,6 +480,15 @@ def test_pdf_a_space_of_no_size_stays_out_of_the_bookmark(tmp_path, browser):
 
 
 @needs_pandoc
+def test_pdf_a_title_print_css_generates_is_on_the_title_page(tmp_path, browser):
+    css = ('header#title-block-header .title { font-size: 0; } '   # the configured title, drawn only as generated text
+           'header#title-block-header .title::before { content: "Навигация & <тест>"; font-size: 16px; }')
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'] and summary['gates']['pdf']['front_matter']['result'] == 'pass', summary['gates']['pdf']
+
+
+@needs_pandoc
 def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box
@@ -570,7 +579,8 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
     ('nav#TOC a::before { content: "Ghostword"; position: absolute; left: -9999px; }', '::before moved by position: absolute'),
     ('nav#TOC a::before { content: "Ghostword"; position: relative; left: 9999px; }', '::before moved by position: relative'),
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; transform: translateX(9999px); }', '::before moved by'),
-])
+    ('nav#TOC a::before { content: "Ghostword"; display: inline-block; translate: 9999px; }', '::before moved by'),   # the
+])   # individual transform properties move it too
 def test_pdf_contents_text_from_a_counter_or_quote_stops_the_build(tmp_path, browser, css, named):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     with pytest.raises(BuildError, match=re.escape(f'«First» shows text that print CSS generates with {named}')):
@@ -661,6 +671,8 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('nav#TOC img { position: absolute; left: 9999px; }', 'is hidden in the printed contents'),   # past the printable width
     ('nav#TOC img { filter: opacity(0); }', 'is hidden in the printed contents'),   # a filter's result cannot be told
     ('body > h1 img { filter: opacity(0); }', "points to a heading that isn't printed"),
+    ('nav#TOC img { scale: 0 1; rotate: 45deg; }', 'is hidden in the printed contents'),   # the scale property collapses
+    ('body > h1 img { scale: 0 1; rotate: 45deg; }', "points to a heading that isn't printed"),   # it as transform does
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)

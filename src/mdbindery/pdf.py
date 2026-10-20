@@ -51,14 +51,18 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         link.style.display = 'none';
         document.head.append(link);
       };
-      const flat = el => {   // a transform on el or above it leaves what it draws no area (scale(0), or scaleX(0) rotated)
-        for (let e = el; e; e = e.parentElement) {
-          const t = getComputedStyle(e).transform;
-          if (!t || t === 'none') continue;
+      const collapsed = style => {   // a transform, or the scale property, that leaves what it draws no area (scale(0),
+        const t = style.transform;   // scaleX(0) rotated, scale: 0 1)
+        if (t && t !== 'none') {
           const m = ((/\(([^()]*)\)/.exec(t) || [, ''])[1]).split(',').map(Number);   // the arguments, not the 3 in matrix3d
           const [a, b, c, d] = m.length === 16 ? [m[0], m[1], m[4], m[5]] : m;
           if (Math.abs(a * d - b * c) < 1e-9) return true;
         }
+        const [x, y = x] = style.scale && style.scale !== 'none' ? style.scale.split(/\s+/).map(parseFloat) : [1];
+        return Math.abs(x * y) < 1e-9;
+      };
+      const flat = el => {   // on el or above it
+        for (let e = el; e; e = e.parentElement) if (collapsed(getComputedStyle(e))) return true;
         return false;
       };
       const place = el => {   // where Chrome can write el's destination: el itself when it has a box, else the first element
@@ -83,10 +87,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const a = value.trim();
         return a === 'none' ? 0 : parseFloat(a) / (a.endsWith('%') ? 100 : 1);
       };
-      const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
+      const scan = root => {   // what root prints: its label (an image by its alt text), its words (no alt
         let label = '', words = '', shows = false, outlined = false, runs = [];   // text), whether anything shows, whether text is drawn
         // only as an outline or a shadow (its extracted text cannot be told), and generated text no page can repeat;
-        const unresolved = [];   // without pseudo, ::before and ::after are left out
+        const unresolved = [];   // ::before and ::after included
         const add = (piece, alt, outline = false) => {   // runs: its printed text in order, each piece with whether it is
           label += piece;   // drawn only as an outline (Chrome writes such a piece twice in the page text)
           if (!alt) words += piece;
@@ -107,18 +111,17 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const value = style.content;
           if (!value || value === 'none' || value === 'normal' || style.display === 'none' || style.visibility !== 'visible'
               || !inks(el, style)) return;
-          const args = ((/\(([^()]*)\)/.exec(style.transform) || [, ''])[1]).split(',').map(Number);   // the pseudo-element's own
-          const [a, b, c, d] = args.length === 16 ? [args[0], args[1], args[4], args[5]] : args;   // drawing: no size, its own clip
           if (parseFloat(style.fontSize) === 0 || style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none')
-              !== 'none' || style.transform !== 'none' && Math.abs(a * d - b * c) < 1e-9 || masked(el)   // or a mask on it, a filter
-              || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // of its own that zeroes its opacity
+              !== 'none' || collapsed(style) || masked(el)   // the pseudo-element's own drawing: no size, its own clip or mask,
+              || /opacity\(\s*0*(?:\.0*)?%?\s*\)/.test(style.filter)) return;   // a collapsing transform, a filter that clears it
           let box = el;   // where its text starts: in its element (or the nearest one above with a box), at least a line
           while (box && !box.getClientRects().length) box = box.parentElement;   // high and a letter wide, since an element
           const r = box && box.getBoundingClientRect(), size = parseFloat(style.fontSize);   // of no height still prints its
           if (r && !onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // overflow; then clipped by it
                             bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) return;   // and above
           const offset = ['top', 'right', 'bottom', 'left'].some(k => !['auto', '0px'].includes(style[k]));   // neither
-          if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset || style.transform !== 'none') {
+          if (['absolute', 'fixed'].includes(style.position) || style.position !== 'static' && offset
+              || ['transform', 'translate', 'rotate', 'scale'].some(k => style[k] && style[k] !== 'none')) {
             unresolved.push(`${which} moved by position: ${style.position} or a transform`);   // moved apart from the flow,
             return;   // where it lands cannot be told here (a pseudo-element has no box to measure)
           }
@@ -157,7 +160,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return style.display === 'none' || style.contentVisibility === 'hidden';
         };
         const walk = node => {
-          if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
+          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
               if (!n.data.trim()) {   // a space that wraps a line may have no box of its own; one in an element of no size
@@ -181,7 +184,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
               }
             }
           }
-          if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
+          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
         const masked = el => {   // a clip path, a mask or a clip rectangle on el or above it: what it leaves cannot be told,
           for (let e = el; e; e = e.parentElement) {   // so what is under it counts as not drawn
@@ -245,11 +248,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       let before = '';   // what is drawn before the contents nav (the title block, the cover): a page the two share starts with it
       for (const el of nav ? document.body.children : []) {
         if (el === nav || el.contains(nav)) break;
-        before += ' ' + scan(el, false).words;
+        before += ' ' + scan(el).words;
       }
       const element = selector => {   // a front-matter element as printed: whether anything of it draws
         const el = document.querySelector(selector);
-        return el ? {shows: scan(el, false).shows} : null;
+        return el ? {shows: scan(el).shows} : null;   // text it generates prints too
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};
