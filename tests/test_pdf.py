@@ -1028,11 +1028,21 @@ def named_book(tmp_path, files, title, authors, css):   # nav_book with its own 
     ('header#title-block-header .date { display: none; } header#title-block-header .author { break-before: page; }', False),
     ('header#title-block-header .date { display: none; }', True),   # the same words, all on the title page
 ])
-def test_pdf_a_title_block_word_the_title_repeats_must_print_on_the_title_page_too(tmp_path, browser, css, ok):
-    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
-    summary = build(named_book(tmp_path, files, 'Alice', ['Alice'], css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+@pytest.mark.parametrize('title, author', [('Alice', 'Alice'), ('Alice', '©'), ('Be an Artist', 'Bea')])   # a word the title
+def test_pdf_a_title_block_word_the_title_repeats_must_print_on_the_title_page_too(tmp_path, browser, css, ok, title, author):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}   # repeats, one of symbols only, letters across words
+    summary = build(named_book(tmp_path, files, title, [author], css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     problems = summary['gates']['pdf']['front_matter']['problems']
     assert (problems == []) if ok else any(p.startswith('the title block does not fit on the title page') for p in problems), problems
+
+
+@needs_pandoc
+def test_pdf_an_image_entry_without_alt_text_stops_the_build(tmp_path, browser):
+    book = nav_book(tmp_path, {'01.md': '# ![](logo.png) Word\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US',
+                    css='nav#TOC li:first-child a { color: transparent; }')   # its word drawn invisibly, an image with no alt text left
+    Image.new('RGB', (20, 20), 'blue').save(book.base / 'logo.png')
+    with pytest.raises(BuildError, match='contents entry 1 shows nothing a bookmark title can hold'):
+        build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
 
 
 @needs_pandoc

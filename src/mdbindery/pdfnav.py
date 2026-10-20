@@ -116,7 +116,7 @@ def join_entries(entries, page):
     if len(page) != len(entries) or set(by_id) != {e['key'] for e in entries}:
         raise BuildError('the page reported other contents entries than the print document holds')
     out = []
-    for e in entries:
+    for n, e in enumerate(entries, 1):
         seen = by_id[e['key']]
         named = seen.get('name') or seen.get('text') or seen.get('label', '')   # a hidden entry shows no label of its own
         if not seen.get('listed', True):
@@ -137,6 +137,10 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
+        if not (seen.get('label') or '').strip():
+            raise BuildError(f'contents entry {n} shows nothing a bookmark title can hold (an image with no alt text, say), so its '
+                             'bookmark would be blank; give the image alt text (![a description](file)), or keep the heading out of the '
+                             'contents with a lower options.toc_depth')
         out.append(dict(e, anchor=seen.get('anchor') or e['key'], marker=seen.get('marker', ''), outlined=seen.get('outlined', False),
                         runs=seen.get('runs'), label=seen.get('label', ''),
                         text=seen.get('text', seen.get('label', '')),
@@ -465,7 +469,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
             problems.append(f'«{matched}» is not in the printed contents text ({pages}): what matched it is the heading that follows; '
                             'CSS may keep it out of print')   # the shared page's heading must still lie ahead of every entry
     for index, page in enumerate(reader.pages):   # every printed contents link goes where its bookmark goes
-        for raw, name in _link_names(page) if links else ():
+        for _, name in _link_names(page) if links else ():
             if name in links:
                 dest = named.get(name)
                 if dest is None or reader.get_destination_page_number(dest) != links[name]:
@@ -485,14 +489,29 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         front.append('the title is only partly visible on the title page: an element that hides its overflow, or the page edge, cuts it')
     elif title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title', meta['title']):
         front.append('the title is not on the title page')
-    else:   # the whole title block is on that page: every word it draws (author, date, abstract) is in the page's text, each
-        rest = texts[title_page]   # occurrence its own (a word the title shares with the author is found twice), longest first
-        for word in sorted(((elements.get('block') or {}).get('words') or '').split(), key=lambda w: -len(normalized(w))):
-            k = rest.find(normalized(word)) if normalized(word) else 0
-            if k < 0:
+    else:   # the whole title block is on that page: each word it draws (author, date, abstract) is one of the page's own
+        # words, each occurrence its own (a word the title shares with the author is two), a word of symbols only (©) by its
+        # characters; whole words first, then a word the page's text splits over pieces or runs into a neighbour
+        tokens = lambda text: [normalized(w) or ''.join(unicodedata.normalize('NFKC', w).split()) for w in text.split()]
+        block = (elements.get('block') or {}).get('words') or ''
+        have = [t for t in tokens(raw[title_page]) if t]
+        left = []
+        for word, want in sorted(((w, t) for w, t in zip(block.split(), tokens(block)) if t), key=lambda p: -len(p[1])):
+            if want in have:
+                have.remove(want)
+            else:
+                left.append((word, want))
+        for word, want in left:
+            spans = [(i, j) for i in range(len(have)) for j in range(i + 1, len(have) + 1) if ''.join(have[i:j]) == want]
+            inside = next((i for i, h in enumerate(have) if want in h), None)
+            if spans:
+                del have[spans[0][0]:spans[0][1]]
+            elif inside is not None:
+                h, k = have[inside], have[inside].find(want)
+                have[inside:inside + 1] = [x for x in (h[:k], h[k + len(want):]) if x]
+            else:
                 front.append(f'the title block does not fit on the title page: «{word}» prints on another page')
                 break
-            rest = rest[:k] + '\0' + rest[k + len(normalized(word)):]
     if rights:
         page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
         if cut('rights'):
