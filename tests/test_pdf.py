@@ -429,3 +429,10 @@ def test_pdf_bookmarks_name_images_by_their_alt_text(tmp_path, browser):
     labels = [t for t, _, _ in outline_of(PdfReader(summary['pdf']))]
     assert labels == ['Logo', 'Map of Mars today']
     assert any('Logo' in n for n in summary['gates']['pdf']['outline']['not_checked'])   # an image-only heading has no page text
+
+
+@needs_pandoc
+def test_pdf_contents_entry_hidden_in_print_stops_the_build(tmp_path, browser):
+    css = 'nav#TOC li:nth-child(2) { display: none; }'
+    with pytest.raises(BuildError, match='«Вторая глава» is hidden in the printed contents'):
+        build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)

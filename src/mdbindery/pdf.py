@@ -55,7 +55,8 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         label.querySelectorAll('img').forEach(n => n.replaceWith(' ' + (n.getAttribute('alt') || '') + ' '));
         const clean = node => node.textContent.replace(/\s+/g, ' ').trim();
         return {id, label: clean(label), text: clean(text),
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true})};
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true}),
+          listed: a.checkVisibility({visibilityProperty: true})};   // the entry itself shows in the printed contents
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
