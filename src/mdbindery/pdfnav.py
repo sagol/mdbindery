@@ -325,20 +325,19 @@ def _flat(reader, items, depth=1):
     return out
 
 
-def _outlined_end(contents, at, pieces):
-    """Where an entry drawn partly or wholly as an outline ends, read from at: each filled piece exactly once, each outline
-    piece twice, as Chrome writes it, or once; -1 when the text there is not the entry."""
+def _outlined_ends(contents, at, pieces):
+    """Where an entry drawn partly or wholly as an outline can end, read from at: each filled piece exactly once, each outline
+    piece twice, as Chrome writes it, or once; readings with more copies first, none when the text there is not the entry."""
     if not pieces:
-        return at
+        return [at]
     (text, outline), rest = pieces[0], pieces[1:]
     if not outline:
-        return _outlined_end(contents, at + len(text), rest) if contents.startswith(text, at) else -1
+        return _outlined_ends(contents, at + len(text), rest) if contents.startswith(text, at) else []
+    out = []
     for copies in (2, 1):
         if contents.startswith(text * copies, at):
-            end = _outlined_end(contents, at + len(text) * copies, rest)
-            if end >= 0:
-                return end
-    return -1
+            out += [e for e in _outlined_ends(contents, at + len(text) * copies, rest) if e not in out]
+    return out
 
 
 def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None, markers=None,
@@ -391,7 +390,7 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
             if title and contents.startswith(title, at):
                 at += len(title)
         pages = '' if first is None else f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
-        matched = None
+        matched, doubt = None, None
         if first is not None and markers is not None and None in markers:   # a marker the page could not spell out: no exact
             skipped.append('the printed contents text: a list marker uses counters or a style the check cannot spell out, so '
                            'where each entry prints was not checked')   # sequence to read
@@ -399,19 +398,27 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
             pieces = [(normalized(t), o) for t, o in (runs[n] if runs is not None and runs[n] else ()) if normalized(t)]
-            if pieces:   # text drawn only as an outline: its pieces in place, the outline ones as Chrome writes them, and
-                mark = normalized(markers[n]) if markers is not None else ''   # the next plain entry right after
+            if pieces:   # text drawn only as an outline: its pieces in place, the outline ones as Chrome writes them
+                mark = normalized(markers[n]) if markers is not None else ''
                 plain = [m for m in range(n + 1, len(rows)) if normalized(listed[m]) and not (runs and runs[m])]
                 expect = lambda m: (normalized(markers[m]) if markers is not None else '') + normalized(listed[m])
-                end = _outlined_end(contents, at + len(mark), pieces) if contents.startswith(mark, at) else -1
-                if end >= 0 and (not plain or plain[0] != n + 1 or contents.startswith(expect(n + 1), end)):
-                    at, matched = end, label
+                ends = _outlined_ends(contents, at + len(mark), pieces) if contents.startswith(mark, at) else []
+                follows = bool(plain) and plain[0] == n + 1
+                if ends:   # read in place: the next plain entry starts where it ends, else is read there and fails on its own
+                    fit = next((e for e in ends[1:] if contents.startswith(expect(n + 1), e)), None) if follows else None
+                    if fit is not None and not contents.startswith(expect(n + 1), ends[0]):   # it starts only where fewer
+                        at, doubt = fit, n + 1   # copies end: its text may be this entry's second copy
+                    else:
+                        at = ends[0]
+                    matched = label
                     continue
-                bound = next((k for k in (contents.find(expect(m), at) for m in plain) if k >= 0), len(contents))
-                cursor = at   # else its filled words, in order, before the next plain entry the text holds
+                found = next(((k, m) for m, k in ((m, contents.find(expect(m), at)) for m in plain) if k >= 0),
+                             (len(contents), None))   # else its filled words, in order, before the next plain entry the
+                bound, doubt = found   # text holds, whose place this entry's unread outline text leaves uncertain
+                cursor = at
                 for text, outline in pieces:
-                    found = -1 if outline else contents.find(text, cursor, bound)
-                    cursor = cursor if outline else found + len(text) if found >= 0 else -1
+                    hit = -1 if outline else contents.find(text, cursor, bound)
+                    cursor = cursor if outline else hit + len(text) if hit >= 0 else -1
                     if cursor < 0:
                         break
                 if cursor < 0:
@@ -434,6 +441,9 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                 problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
             else:
                 at, matched = where + len(want), label
+                if doubt == n:
+                    skipped.append(f'«{label}»: the outlined entry before it may have printed this text itself, so its '
+                                   'place was not fully checked')
         if first is not None and last == rows[lead][2] and heading and matched is not None and contents.find(heading, at) < 0:
             problems.append(f'«{matched}» is not in the printed contents text ({pages}): what matched it is the heading that follows; '
                             'CSS may keep it out of print')   # the shared page's heading must still lie ahead of every entry

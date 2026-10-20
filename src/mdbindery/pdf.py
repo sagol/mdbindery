@@ -244,12 +244,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       };
       const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
                      contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};
-      return {
-      text: source.textContent,
-      places,
-      before,
-      front,
-      entries: Array.from(document.querySelectorAll('nav#TOC a[href^="#"]')).map((a, n) => {   // in the order prepare counted
+      const entries = Array.from(document.querySelectorAll('nav#TOC a[href^="#"]')).map((a, n) => {   // in the order prepare counted
         const id = `mdb-dest-${n + 1}`;   // them: the n-th contents link is entry n, marked by nothing in the document
         let target = null;
         try { target = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); } catch (_) {}
@@ -258,14 +253,22 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         const name = a.cloneNode(true);   // the entry's full text, an image by its alt text, to name it in a message
         name.querySelectorAll('annotation, script, style').forEach(n => n.remove());
         name.querySelectorAll('br, img').forEach(n => n.replaceWith(' ' + (n.getAttribute('alt') || '') + ' '));
-        const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
-        return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
-          name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
-          marker: marker(a), outlined: entry.outlined, runs: entry.outlined ? entry.runs : null,
-          printed: !!anchor && anchor.checkVisibility() && heading.shows,   // laid out, and something in it drawn (a visible
-          // descendant of a hidden heading prints, and Chrome writes the heading's destination)
+        const entry = scan(a), heading = target ? scan(target) : {words: '', shows: false};   // what the heading draws, its
+        return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words,   // ::before and ::after included
+          text: heading.words, name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows,
+          unresolved: entry.unresolved, marker: marker(a), outlined: entry.outlined, runs: entry.outlined ? entry.runs : null,
+          printed: !!anchor && anchor.checkVisibility() && heading.shows,   // laid out, and something in it drawn: a visible part
+          // of a hidden heading, or text it generates, prints, and Chrome writes the heading's destination
           placeless: !anchor && !!target && getComputedStyle(target).display === 'contents'};
-      }),
+      });
+      const links = source.querySelectorAll('nav#TOC a[href^="#"]');   // the word count expects of the contents only the words
+      entries.forEach((e, n) => links[n] && links[n].replaceWith(` ${e.words} `));   // each entry prints, not those CSS hides
+      return {
+      text: source.textContent,
+      places,
+      before,
+      front,
+      entries,
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
       brokenLinks: Array.from(document.querySelectorAll('a[href^="#"]')).filter(a => {

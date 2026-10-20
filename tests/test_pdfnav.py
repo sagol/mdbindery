@@ -321,3 +321,13 @@ def test_the_contents_gate_reads_outline_text_in_place_and_the_entries_after_it(
     pages[2] = ['Contents', 'of Marsof Mars today', 'Second']   # a filled word missing
     problems, _ = contents_problems(tmp_path, pages, heads, listed, ['', ''], runs=runs)
     assert len(problems) == 1 and '«Map of Mars today»' in problems[0]
+
+
+def test_the_contents_gate_does_not_take_an_outlined_entrys_copy_for_the_next_entry(tmp_path):
+    heads, listed, markers = [('2 Second', 3), ('Second', 4)], ['', 'Second'], ['1', '2']
+    runs = [[('2 Second', True)], None]   # the first entry, all outline, reads «2 Second» like marker 2 and «Second»
+    pages = [['cover'], ['Title'], ['Contents', '1 2 Second2 Second'], ['2 Second', 'Text.'], ['Second', 'Text.']]
+    problems, skipped = contents_problems(tmp_path, pages, heads, listed, markers, runs=runs)   # written twice, or once and
+    assert problems == [] and any(n.startswith('«Second»: the outlined entry before it') for n in skipped)   # then «2 Second»
+    pages[2] = ['Contents', '1 2 Second2 Second', '2 Second']   # twice, then the next entry: each in its own place
+    assert contents_problems(tmp_path, pages, heads, listed, markers, runs=runs) == ([], [])

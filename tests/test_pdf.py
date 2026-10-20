@@ -430,6 +430,25 @@ def test_pdf_an_entry_partly_drawn_as_an_outline_keeps_the_contents_check(tmp_pa
 
 
 @needs_pandoc
+def test_pdf_words_print_css_hides_in_the_contents_are_not_missing(tmp_path, browser):
+    hidden = ' '.join(f'word{k}' for k in range(10))   # 30 words the contents leave out, over the 25-word floor
+    files = {f'0{n}.md': f'# Part{n} *{hidden}*\n\nText.\n' for n in (1, 2, 3)}
+    summary = build(nav_book(tmp_path, files, lang='en-US', css='nav#TOC em { display: none; }'), out_dir=tmp_path / 'out',
+                    output_format='pdf', log=quiet)
+    assert summary['ok'] and summary['gates']['pdf']['missing_words'] < 25, summary['gates']['pdf']
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['Part1', 'Part2', 'Part3']
+
+
+@needs_pandoc
+def test_pdf_a_heading_whose_text_is_generated_prints(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'h1[id$="first"] { font-size: 0; } h1[id$="first"]::before { content: "First"; font-size: 16px; }'   # only the
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']   # generated copy of its words prints
+    assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['First', 'Second']
+
+
+@needs_pandoc
 def test_pdf_a_hidden_heading_with_a_visible_part_prints(tmp_path, browser):
     files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second\n\nText.\n'}
     css = 'h1:has(em) { visibility: hidden; } h1 em { visibility: visible; }'   # only «of Mars» prints; the heading has a box
