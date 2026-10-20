@@ -40,20 +40,21 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
     await page.emulateMediaType('print');
     await page.goto(url.pathToFileURL(jobs.html).href, {waitUntil: 'load', timeout: 60000});
     await page.evaluate(() => document.fonts.ready);
-    const documentState = await page.evaluate(() => {
+    const documentState = await page.evaluate(locators => {
       const source = document.body.cloneNode(true);
       source.querySelectorAll('annotation, script, style').forEach(n => n.remove());
-      return {
-      text: source.textContent,
-      entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
-        const id = a.getAttribute('data-mdb-dest');
-        const anchor = document.getElementById(id);
-        const text = a.cloneNode(true);   // the heading's words for its page check, by the word gate's extraction rule:
-        text.querySelectorAll('annotation, script, style').forEach(n => n.remove());   // no TeX annotation, script or style
-        text.querySelectorAll('br').forEach(n => n.replaceWith(' '));
-        let label = '', words = '', shows = false;   // the bookmark is what the printed entry shows: text that lays out and is
-        const unresolved = [];   // inked (a display: contents link has no box of its own), and an image by its alt text; words
-        const add = (piece, alt) => {   // leaves the alt text out, for the gate that finds each entry in the contents' own text
+      const hide = id => {   // Chrome writes a destination only for a link target, a hidden link's included; these go after
+        const link = document.createElement('a');   // all the book's content, never among an author's elements
+        link.className = 'mdb-locator';
+        link.setAttribute('href', '#' + id);
+        link.style.display = 'none';
+        document.body.append(link);
+      };
+      locators.filter(id => document.getElementById(id)).forEach(hide);   // the title block, the contents nav, the rights line
+      const scan = (root, pseudo = true) => {   // what root prints: its label (an image by its alt text), its words (no alt
+        let label = '', words = '', shows = false;   // text), whether anything shows, and generated text no page can repeat;
+        const unresolved = [];   // without pseudo, ::before and ::after are left out
+        const add = (piece, alt) => {
           label += piece;
           if (!alt) words += piece;
         };
@@ -110,7 +111,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           return style.display === 'none' || style.contentVisibility === 'hidden';
         };
         const walk = node => {
-          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
+          if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::before');
           for (const n of node.childNodes) {
             if (n.nodeType === Node.TEXT_NODE) {
               if (!n.data.trim()) { add(' '); continue; }   // a space that wraps a line may have no box of its own
@@ -123,20 +124,44 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             } else if (n.nodeType === Node.ELEMENT_NODE && !['annotation', 'script', 'style'].includes(n.localName) && !hides(n)) {
               if (n.localName === 'br') add(' ');
               else if (n.localName !== 'img') walk(n);
-              else if (n.checkVisibility({visibilityProperty: true, opacityProperty: true})) {
+              else if (drawn(n)) {
                 add(' ' + (n.getAttribute('alt') || '') + ' ', true);
                 shows = true;
               }
             }
           }
-          if (node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
+          if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
-        let lays = true;   // the link and every ancestor (its list item, the nav) lay out
-        for (let el = a; el; el = el.parentElement) if (hides(el)) lays = false;
-        if (lays) walk(a);
-        return {id, label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(),
-          text: text.textContent.replace(/\s+/g, ' ').trim(), listed: shows, unresolved,
-          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true})};
+        const drawn = img => {   // an image draws: visible, not transparent, a box left after transforms, on the page
+          const box = img.getBoundingClientRect();
+          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && box.width > 0 && box.height > 0
+            && box.right > 0 && box.bottom > 0;
+        };
+        let lays = true;   // root and every ancestor lay out
+        for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
+        if (lays) walk(root);
+        return {label: label.replace(/\s+/g, ' ').trim(), words: words.replace(/\s+/g, ' ').trim(), shows, unresolved};
+        };
+      return {
+      text: source.textContent,
+      entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
+        const id = a.getAttribute('data-mdb-dest');
+        let target = null;
+        try { target = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))); } catch (_) {}
+        let anchor = target;   // the heading itself is the destination; only a heading with no box of its own (display:
+        if (target && getComputedStyle(target).display === 'contents') {   // contents), for which Chrome writes none, gets
+          anchor = document.createElement('span');                           // an empty span first in it
+          anchor.id = id;
+          target.prepend(anchor);
+        }
+        if (anchor) hide(anchor.id);
+        const name = a.cloneNode(true);   // the entry's full text, an image by its alt text, to name it in a message
+        name.querySelectorAll('annotation, script, style').forEach(n => n.remove());
+        name.querySelectorAll('br, img').forEach(n => n.replaceWith(' ' + (n.getAttribute('alt') || '') + ' '));
+        const entry = scan(a), heading = target ? scan(target, false) : {words: '', shows: false};   // the heading's own drawn
+        return {id, anchor: anchor ? anchor.id : null, label: entry.label, words: entry.words, text: heading.words,   // words,
+          name: name.textContent.replace(/\s+/g, ' ').trim(), listed: entry.shows, unresolved: entry.unresolved,   // its page check
+          printed: !!anchor && anchor.checkVisibility({visibilityProperty: true, opacityProperty: true}) && heading.shows};
       }),
       brokenImages: Array.from(document.images).filter(i => !i.complete || !i.naturalWidth).length,
       brokenFonts: Array.from(document.fonts).filter(f => f.status === 'error').length,
@@ -144,7 +169,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         try { return a.hash && !document.getElementById(decodeURIComponent(a.hash.slice(1))); }
         catch (_) { return true; }
       }).length
-    }; });
+    }; }, jobs.locators);
     if (failures.size || documentState.brokenImages || documentState.brokenFonts || documentState.brokenLinks)
       throw new Error('PDF resources or internal links failed: ' + JSON.stringify({
         resources: Array.from(failures), images: documentState.brokenImages,
@@ -276,7 +301,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     for line in result.stderr.splitlines():
         log(f'  pandoc: {line}')
     rights = cfg.meta.get('rights') or ''
-    entries, has_nav = pdfnav.prepare(html_file, rights)   # anchors, locators and the rights line
+    entries, has_nav = pdfnav.prepare(html_file, rights)   # the contents links marked, and the rights line
     script = work / 'pdf.js'
     script.write_text(JS, encoding='utf-8')
     text_file = work / 'pdf-text.txt'
@@ -290,7 +315,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
     jobs = {'html': str(html_file), 'output': str(temporary), 'text': str(text_file), 'entries': str(entries_file),
             'files': [str(p) for p in [html_file, pdf_css, print_css, *staged.values()]],
             'args': args, 'page_size': settings['page_size'], 'page_numbers': settings['page_numbers'],
-            'margin': f'{settings["margin_mm"]}mm'}
+            'margin': f'{settings["margin_mm"]}mm', 'locators': [pdfnav.TITLE, pdfnav.CONTENTS, pdfnav.RIGHTS]}
     jobs_file = work / 'pdf-jobs.json'
     jobs_file.write_text(json.dumps(jobs), encoding='utf-8')
     meta = {k: cfg.meta.get(k) or ('' if k not in ('authors', 'subjects') else []) for k in

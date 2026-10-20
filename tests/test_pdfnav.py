@@ -42,29 +42,23 @@ def prepared(tmp_path, text=HTML, rights='© 2026 «Автор» & <co>'):
     return path.read_text(encoding='utf-8'), entries, has_nav
 
 
-def test_prepare_anchors_each_entry_first_in_its_target_and_changes_nothing_else(tmp_path):
+def test_prepare_marks_the_contents_links_and_adds_only_the_rights_line(tmp_path):
     out, entries, has_nav = prepared(tmp_path)
     assert has_nav
-    assert [(e['depth'], e['anchor'], e['target']) for e in entries] == [
+    assert [(e['depth'], e['key'], e['target']) for e in entries] == [
         (1, 'mdb-dest-1', 'глава'), (2, 'mdb-dest-2', 'with.dot'), (1, 'mdb-dest-3', 'second')]
-    hidden = lambda n: f'<span id="mdb-dest-{n}"></span><a class="mdb-locator" href="#mdb-dest-{n}" style="display:none"></a>'
-    assert f'<h1 id="глава">{hidden(1)}Глава <em>первая</em></h1>' in out
-    assert f'<h2 id="with.dot">{hidden(2)}Точка</h2>' in out
+    assert '<h1 id="глава">Глава <em>первая</em></h1>' in out and '<h2 id="with.dot">Точка</h2>' in out   # nothing inside a heading
     assert '<a data-mdb-dest="mdb-dest-3" href="#second" id="toc-second">Вторая</a>' in out   # its href, for author CSS, stays
-    assert '<header id="title-block-header"><span id="mdb-title-page"></span><a class="mdb-locator" href="#mdb-title-page" style="display:none"></a>' in out
-    assert '<nav id="TOC" role="doc-toc"><span id="mdb-contents-page"></span>' in out
-    assert ('<p class="rights"><span id="mdb-rights"></span><a class="mdb-locator" href="#mdb-rights" style="display:none"></a>'
-            '© 2026 «Автор» &amp; &lt;co&gt;</p></header>') in out
-    undone = re.sub(r'<span id="mdb-[^"]*"></span>|<a class="mdb-locator"[^>]*></a>|<p class="rights">.*?</p>(?=</header>)', '', out)
+    assert '<p class="rights" id="mdb-rights">© 2026 «Автор» &amp; &lt;co&gt;</p></header>' in out
+    undone = re.sub(r'<p class="rights" id="mdb-rights">.*?</p>(?=</header>)', '', out)
     undone = re.sub(r' data-mdb-dest="mdb-dest-\d+"', '', undone)
-    assert undone == HTML   # only the inserts differ
+    assert undone == HTML   # only the marks and the rights line differ
 
 
-def test_prepare_without_contents_or_rights_adds_only_the_title_locator(tmp_path):
+def test_prepare_without_contents_or_rights_changes_nothing(tmp_path):
     text = re.sub(r'<nav id="TOC".*?</nav>\n', '', HTML, flags=re.S)
     out, entries, has_nav = prepared(tmp_path, text, rights='')
-    assert (entries, has_nav) == ([], False)
-    assert 'mdb-contents-page' not in out and 'class="rights"' not in out and 'mdb-title-page' in out
+    assert (entries, has_nav, out) == ([], False, text)
 
 
 @pytest.mark.parametrize('change, message', [
@@ -83,10 +77,12 @@ def test_prepare_refuses_what_it_cannot_anchor(tmp_path, change, message):
         prepared(tmp_path, change(HTML))
 
 
-def test_join_entries_takes_the_pages_labels_and_stops_on_a_hidden_heading():
-    entries = [{'depth': 1, 'anchor': 'mdb-dest-1', 'target': 'a'}, {'depth': 2, 'anchor': 'mdb-dest-2', 'target': 'b'}]
-    page = [{'id': 'mdb-dest-1', 'label': 'Energy E=mc2', 'printed': True}, {'id': 'mdb-dest-2', 'label': 'B', 'printed': True}]
-    assert [e['label'] for e in pdfnav.join_entries(entries, page)] == ['Energy E=mc2', 'B']
+def test_join_entries_takes_the_pages_anchors_and_labels_and_stops_on_a_hidden_heading():
+    entries = [{'depth': 1, 'key': 'mdb-dest-1', 'target': 'a'}, {'depth': 2, 'key': 'mdb-dest-2', 'target': 'b'}]
+    page = [{'id': 'mdb-dest-1', 'anchor': 'a', 'label': 'Energy E=mc2', 'printed': True},
+            {'id': 'mdb-dest-2', 'anchor': 'mdb-dest-2', 'label': 'B', 'printed': True}]   # a heading with no box: its span
+    joined = pdfnav.join_entries(entries, page)
+    assert [(e['anchor'], e['label']) for e in joined] == [('a', 'Energy E=mc2'), ('mdb-dest-2', 'B')]
     with pytest.raises(BuildError, match='other contents entries'):
         pdfnav.join_entries(entries, page[:1])
     with pytest.raises(BuildError, match="«B» points to a heading that isn't printed"):
@@ -125,7 +121,7 @@ META = {'title': 'A & B <c> "d" \'e\'', 'authors': ['Ann & Bo', 'Ёж <Колю�
 
 def built(tmp_path, pages=None, entries=None, meta=META, has_nav=True):
     pages = pages or [['cover'], ['A & B <c> "d" \'e\'', '2026 "R" & <S>'], ['Contents'], ['Chapter One'], ['Part', 'Chapter One']]
-    dests = [('mdb-title-page', (1, 700)), ('mdb-rights', (1, 680)), ('mdb-contents-page', (2, 700)),
+    dests = [(pdfnav.TITLE, (1, 700)), (pdfnav.RIGHTS, (1, 680)), (pdfnav.CONTENTS, (2, 700)),
              ('mdb-dest-1', (3, 720)), ('mdb-dest-2', (4, 700)), ('mdb-dest-3', (4, 680))]
     source, final = tmp_path / 'chrome.pdf', tmp_path / 'final.pdf'
     make_pdf(source, pages, dests)
@@ -139,7 +135,7 @@ def built(tmp_path, pages=None, entries=None, meta=META, has_nav=True):
 
 def test_outline_metadata_and_front_matter_pass_on_a_faithful_file(tmp_path):
     final, rows, pages_of = built(tmp_path)
-    assert pages_of == {'mdb-title-page': 1, 'mdb-rights': 1, 'mdb-contents-page': 2}
+    assert pages_of == {pdfnav.TITLE: 1, pdfnav.RIGHTS: 1, pdfnav.CONTENTS: 2}
     assert [r[:3] for r in rows] == [('Chapter One', 1, 3), ('Part', 2, 4), ('Chapter One', 3, 4)]   # level 4 nests at tree depth 3
     outline, front, metadata = pdfnav.gates(final, rows, META, 'Contents', True, META['rights'])
     assert (outline['result'], front['result'], metadata['result']) == ('pass', 'pass', 'pass'), (outline, front, metadata)
@@ -201,7 +197,7 @@ def test_no_contents_writes_no_outline(tmp_path):
 
 def test_a_missing_destination_is_a_finalization_error(tmp_path):
     source = tmp_path / 'chrome.pdf'
-    make_pdf(source, [['a'], ['b']], [('mdb-title-page', (1, 700))])
+    make_pdf(source, [['a'], ['b']], [(pdfnav.TITLE, (1, 700))])
     with pytest.raises(BuildError, match='no destination for contents entry «X»'):
         pdfnav.project(PdfReader(source), [{'depth': 1, 'anchor': 'mdb-dest-1', 'label': 'X'}], False, '')
     with pytest.raises(BuildError, match='mdb-rights locator'):

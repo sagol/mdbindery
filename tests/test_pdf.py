@@ -10,7 +10,7 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from conftest import EXAMPLES, FIXTURES, needs_pandoc, validate_if_installed
-from mdbindery import config, tools
+from mdbindery import config, pdfnav, tools
 from mdbindery.build import BuildError, build
 from mdbindery.cli import main, parser
 from mdbindery.pdf import validate_pdf
@@ -515,6 +515,30 @@ def test_pdf_contents_entry_in_any_visible_colour_is_listed(tmp_path, browser, c
                     output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']
     assert [t for t, _, _ in outline_of(PdfReader(summary['pdf']))] == ['First', 'Second']
+
+
+@needs_pandoc
+def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, browser):
+    files = {'01.md': '# Map *of Mars* today\n\nText.\n', '02.md': '# Second *part*\n\nText.\n'}
+    css = 'body > h1 > :first-child { display: none; }'   # author CSS keyed on a heading's first element
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
+    reader = PdfReader(summary['pdf'])
+    first = next(page for _, _, page in outline_of(reader))
+    text = pdfnav.normalized(reader.pages[first].extract_text())
+    assert 'maptoday' in text and 'ofmars' not in text   # the emphasis is still the first element, so it is the one hidden
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css, message', [
+    ('body > h1 img { display: none; }', "points to a heading that isn't printed"),   # the heading's only content gone
+    ('nav#TOC img { transform: scale(0); }', 'is hidden in the printed contents'),   # the entry's only content drawn at no size
+])
+def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
+    Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
+    with pytest.raises(BuildError, match=f'«Logo» {message}'):
+        build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
 
 
 @needs_pandoc

@@ -1,10 +1,11 @@
-"""PDF navigation and metadata: anchors and locators in the print HTML, then the outline, Info and XMP written into
-Chrome's PDF, and the gates that check them in the final file.
+"""PDF navigation and metadata: the contents links marked and the rights line added in the print HTML, then the outline,
+Info and XMP written into Chrome's PDF, and the gates that check them in the final file.
 
-The outline holds exactly pandoc's contents (nav#TOC). Each entry's link points to a generated anchor inside its
-target, so its destination never depends on the heading's own box (a display: contents heading has none). Locators
-(an empty span and a hidden link to it, which adds no annotation, tag or text) find the title page, the rights line and
-the first contents page in the final PDF, independent of the outline."""
+The outline holds exactly pandoc's contents (nav#TOC). Each entry's destination is its heading, made at print time by
+the page script; a heading with no box of its own (display: contents), for which Chrome writes no destination, gets an
+empty span first in it. The title block, the contents nav and the rights line are found by their own ids. Chrome writes
+a destination only for a link target, so hidden links to each (no annotation, tag or text) follow the book's content;
+nothing is put among an author's elements, where a structural selector of the book's CSS could match it."""
 import html
 import re
 import unicodedata
@@ -15,7 +16,7 @@ from xml.sax.saxutils import escape
 from .build import BuildError
 
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
-TITLE, RIGHTS, CONTENTS = 'mdb-title-page', 'mdb-rights', 'mdb-contents-page'
+TITLE, RIGHTS, CONTENTS = 'title-block-header', 'mdb-rights', 'TOC'   # pandoc's own ids, and the rights line setup adds
 FIT_ARGS = {'/XYZ': ('/Left', '/Top', '/Zoom'), '/Fit': (), '/FitB': (), '/FitH': ('/Top',), '/FitBH': ('/Top',),
             '/FitV': ('/Left',), '/FitBV': ('/Left',), '/FitR': ('/Left', '/Bottom', '/Right', '/Top')}
 
@@ -77,15 +78,13 @@ class _Scan(HTMLParser):
                 return
 
 
-def _locator(ident):
-    return f'<span id="{ident}"></span><a class="mdb-locator" href="#{ident}" style="display:none"></a>'
-
-
 def prepare(path, rights):
-    """Rewrite the print HTML once: a generated anchor first in each contents entry's target, with a hidden link to it
-    (Chrome writes a destination only for a link target), the entry's link marked with it (its href unchanged), the
-    locators, and the rights line before the title block's closing tag. Returns the contents entries, in
-    order, as {'depth', 'anchor', 'target'}, and whether pandoc wrote a contents nav."""
+    """Rewrite the print HTML once: each contents link marked with its entry's key (its href unchanged), and the rights
+    line, with its own id, before the title block's closing tag. Nothing goes inside a heading or among an author's
+    elements, so no structural selector of the book's CSS matches differently: the page script makes each destination at
+    print time, from the heading itself, or for a heading with no box an empty span first in it, and adds the hidden links
+    Chrome needs after the content. Returns the contents entries, in order, as {'depth', 'key', 'target'}, and whether
+    pandoc wrote a contents nav."""
     text = path.read_text(encoding='utf-8')
     scan = _Scan(text)
     scan.feed(text)
@@ -101,15 +100,12 @@ def prepare(path, rights):
         found = scan.ids.get(target)
         if not found or found['tag'] in VOID or found['region']:
             raise BuildError(f'contents entry {n} points to {target!r}, which is not a printable element of the book')
-        anchor = f'mdb-dest-{n}'
-        raw = link['raw'][:2] + f' data-mdb-dest="{anchor}"' + link['raw'][2:]   # its href, which author CSS may select by, stays
-        edits += [(link['start'], link['end'], raw), (found['end'], found['end'], _locator(anchor))]   # a hidden link of its own
-        entries.append({'depth': link['depth'], 'anchor': anchor, 'target': target})
-    edits.append((scan.header, scan.header, _locator(TITLE)))
+        key = f'mdb-dest-{n}'
+        raw = link['raw'][:2] + f' data-mdb-dest="{key}"' + link['raw'][2:]   # its href, which author CSS may select by, stays
+        edits.append((link['start'], link['end'], raw))
+        entries.append({'depth': link['depth'], 'key': key, 'target': target})
     if rights:
-        edits.append((scan.header_close, scan.header_close, f'<p class="rights">{_locator(RIGHTS)}{html.escape(rights)}</p>'))
-    if scan.nav is not None:
-        edits.append((scan.nav, scan.nav, _locator(CONTENTS)))
+        edits.append((scan.header_close, scan.header_close, f'<p class="rights" id="{RIGHTS}">{html.escape(rights)}</p>'))
     for start, end, new in sorted(edits, key=lambda e: (e[0], e[1]), reverse=True):
         text = text[:start] + new + text[end:]
     path.write_text(text, encoding='utf-8')
@@ -117,14 +113,14 @@ def prepare(path, rights):
 
 
 def join_entries(entries, page):
-    """The nav's entries with the labels and print visibility the page reported for each anchor, in order."""
+    """The nav's entries with the anchor, labels and print visibility the page reported for each key, in order."""
     by_id = {e.get('id'): e for e in page}
-    if len(page) != len(entries) or set(by_id) != {e['anchor'] for e in entries}:
+    if len(page) != len(entries) or set(by_id) != {e['key'] for e in entries}:
         raise BuildError('the page reported other contents entries than the print document holds')
     out = []
     for e in entries:
-        seen = by_id[e['anchor']]
-        named = seen.get('text') or seen.get('label', '')   # a hidden entry shows no label of its own
+        seen = by_id[e['key']]
+        named = seen.get('name') or seen.get('text') or seen.get('label', '')   # a hidden entry shows no label of its own
         if not seen.get('listed', True):
             raise BuildError(f"contents entry «{named}» is hidden in the printed contents, so the bookmarks would "
                              'not match it; show it there, or keep its heading out of the contents with a lower options.toc_depth')
@@ -135,7 +131,7 @@ def join_entries(entries, page):
             raise BuildError(f"contents entry «{named}» points to a heading that isn't printed (display: none or "
                              'visibility: hidden, on it or a parent); show it in print, or keep it out of the contents and bookmarks '
                              'with a lower options.toc_depth')
-        out.append(dict(e, label=seen.get('label', ''), text=seen.get('text', seen.get('label', '')),
+        out.append(dict(e, anchor=seen.get('anchor') or e['key'], label=seen.get('label', ''), text=seen.get('text', seen.get('label', '')),
                         words=seen.get('words', seen.get('label', ''))))
     return out
 
