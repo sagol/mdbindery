@@ -530,6 +530,10 @@ def test_pdf_generated_text_of_a_hidden_entry_does_not_list_it(tmp_path, browser
                                  'nav#TOC li:first-child a { color: color(display-p3 1 0 1 / 0); }',
                                  'nav#TOC li:first-child a { display: inline-block; transform: scale(0); }',
                                  'nav#TOC li:first-child a { display: inline-block; transform: rotate(45deg) scaleX(0); }',
+                                 'nav#TOC li:first-child a { font-size: 0; }', 'nav#TOC li:first-child a { position: absolute; left: -9999px; }',
+                                 'nav#TOC li:first-child a { position: absolute; left: 9999px; }',
+                                 'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
+                                 'nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }',
                                  'nav#TOC li:first-child a { color: oklch(0.5 0.1 120 / 0); }'])
 def test_pdf_contents_entry_drawn_invisibly_stops_the_build(tmp_path, browser, css):
     files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
@@ -568,6 +572,7 @@ def test_pdf_navigation_adds_nothing_among_a_headings_own_elements(tmp_path, bro
     ('body > h1 img { clip-path: inset(50%); }', "points to a heading that isn't printed"),   # a box and a size, nothing drawn
     ('nav#TOC img { clip-path: inset(50%); }', 'is hidden in the printed contents'),
     ('nav#TOC li:first-child a { display: inline-block; width: 0; overflow: hidden; }', 'is hidden in the printed contents'),
+    ('nav#TOC img { position: absolute; left: 9999px; }', 'is hidden in the printed contents'),   # past the printable width
 ])
 def test_pdf_image_only_entries_must_print(tmp_path, browser, css, message):
     book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
@@ -598,6 +603,17 @@ def test_pdf_contents_gate_reads_a_last_contents_page_the_first_chapter_shares(t
     assert summary['ok'], summary['gates']['pdf']['outline']
 
 
+def kept_out(tmp_path, files, css, entry, lang='en-US'):
+    """A contents entry print keeps out never passes: the page refuses it as hidden, or the outline gate misses it."""
+    try:
+        summary = build(nav_book(tmp_path, files, lang=lang, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    except BuildError as error:
+        assert f'«{entry}» is hidden in the printed contents' in str(error)
+        return
+    outline = summary['gates']['pdf']['outline']
+    assert not summary['ok'] and any(f'«{entry}» is not in the printed contents text' in p for p in outline['problems']), outline
+
+
 @needs_pandoc
 def test_pdf_contents_gate_never_finds_a_hidden_entry_in_the_chapter_text_after_it(tmp_path, browser):
     files = {f'{n:02}.md': f'# Chapter{"abcdefgh"[n]}word\n\nText.\n' for n in range(8)}
@@ -606,9 +622,7 @@ def test_pdf_contents_gate_never_finds_a_hidden_entry_in_the_chapter_text_after_
     files['07.md'] = '# Chapterhword\n\nText.\n'
     css = ('nav#TOC li { font-size: 90px; line-height: 1.6; } nav#TOC { break-after: auto !important; } '
            'h1:not(.title) { break-before: auto !important; } nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }')
-    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    outline = summary['gates']['pdf']['outline']
-    assert not summary['ok'] and any('«Chapterhword» is not in the printed contents text' in p for p in outline['problems']), outline
+    kept_out(tmp_path, files, css, 'Chapterhword')
 
 
 @needs_pandoc
@@ -616,24 +630,20 @@ def test_pdf_contents_gate_takes_no_letters_between_entries(tmp_path, browser):
     files = {'01.md': '# One\n\nBetaword appears here.\n', '02.md': '# Betaword\n\nText.\n'}   # a short heading, then the words
     css = ('nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
            'nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }')
-    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    outline = summary['gates']['pdf']['outline']
-    assert not summary['ok'] and any('«Betaword» is not in the printed contents text' in p for p in outline['problems']), outline
+    kept_out(tmp_path, files, css, 'Betaword')
 
 
 @needs_pandoc
-@pytest.mark.parametrize('lang, files, css', [
-    ('fr', {'01.md': '# Alphaword\n\nText.\n'}, 'nav#TOC a { display: inline-block; clip-path: inset(50%); }'),   # no title
+@pytest.mark.parametrize('lang, files, css, entry', [
+    ('fr', {'01.md': '# Alphaword\n\nText.\n'}, 'nav#TOC a { display: inline-block; clip-path: inset(50%); }', 'Alphaword'),
     ('fr', {'01.md': '# Alphaword\n\nText.\n'}, 'nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
-                                               'nav#TOC a { display: inline-block; clip-path: inset(50%); }'),   # on a shared page
+                                               'nav#TOC a { display: inline-block; clip-path: inset(50%); }', 'Alphaword'),
     ('en-US', {'01.md': '# 1\n\nBetaword appears here.\n', '02.md': '# Betaword\n\nText.\n'},   # a numeric heading, then the words
      'nav#TOC { break-after: auto !important; } h1:not(.title) { break-before: auto !important; } '
-     'nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }'),
+     'nav#TOC li:last-child a { display: inline-block; clip-path: inset(50%); }', 'Betaword'),
 ])
-def test_pdf_contents_gate_finds_no_entry_outside_the_printed_contents(tmp_path, browser, lang, files, css):
-    summary = build(nav_book(tmp_path, files, lang=lang, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    outline = summary['gates']['pdf']['outline']
-    assert not summary['ok'] and any('is not in the printed contents text' in p for p in outline['problems']), outline
+def test_pdf_contents_gate_finds_no_entry_outside_the_printed_contents(tmp_path, browser, lang, files, css, entry):
+    kept_out(tmp_path, files, css, entry, lang)
 
 
 @needs_pandoc
@@ -651,6 +661,36 @@ def test_pdf_contents_gate_accepts_list_markers_and_unnumbered_pages(tmp_path, b
 
 
 @needs_pandoc
+@pytest.mark.parametrize('css, rights, problem', [
+    ('header#title-block-header .title { display: none; }', 'Навигация & <тест>', 'the title is not on the title page'),   # its words
+    ('header#title-block-header p.rights { visibility: hidden; }', '© 2026', 'the rights line is not on the title page'),   # elsewhere
+    ('nav#TOC > h2 { opacity: 0; }', '© 2026', 'the contents heading is not on the first contents page'),
+])
+def test_pdf_front_matter_gate_checks_the_elements_themselves(tmp_path, browser, css, rights, problem):
+    files = {'01.md': '# First\n\nСодержание.\n', '02.md': '# Second\n\nText.\n'}
+    summary = build(nav_book(tmp_path, files, rights=rights, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert problem in summary['gates']['pdf']['front_matter']['problems'], summary['gates']['pdf']['front_matter']
+
+
+@needs_pandoc
+def test_pdf_custom_list_counters_leave_the_contents_text_unchecked(tmp_path, browser):
+    files = {'01.md': '# First\n\nText.\n', '02.md': '# Second\n\nText.\n'}
+    css = 'nav#TOC ul { list-style-type: decimal; } nav#TOC li { counter-increment: list-item 2; }'   # it prints 2 and 4
+    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    outline = summary['gates']['pdf']['outline']
+    assert summary['ok'] and any('list markers' in n for n in outline['not_checked']), outline
+
+
+@needs_pandoc
+def test_pdf_an_image_heading_under_a_boxless_clipping_ancestor_prints(tmp_path, browser):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US',
+                    css='body > h1:first-of-type { display: contents; overflow: hidden; }')   # overflow does nothing without a box
+    Image.new('RGB', (20, 20), 'white').save(book.base / 'logo.png')
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']['pdf']
+
+
+@needs_pandoc
 def test_pdf_locator_links_change_no_body_structure(tmp_path, browser):
     files = {'01.md': '# First\n\nKeptword.\n\nHiddenword.\n', '02.md': '# Second\n\nText.\n\nLastword.\n'}
     css = 'body > p:last-child { display: none; }'   # the book's last paragraph, as the author's CSS selects it
@@ -665,18 +705,6 @@ def test_pdf_locator_links_change_no_body_structure(tmp_path, browser):
 def test_pdf_a_3d_transform_that_keeps_its_area_draws(tmp_path, browser, css):
     summary = build(nav_book(tmp_path, CHAPTERS, css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     assert summary['ok'], summary['gates']['pdf']
-
-
-@needs_pandoc
-@pytest.mark.parametrize('css', ['nav#TOC li:first-child a { font-size: 0; }',
-                                 'nav#TOC li:first-child a { display: inline-block; clip-path: inset(50%); }',
-                                 'nav#TOC li:first-child a { position: absolute; left: -9999px; }'])
-def test_pdf_outline_gate_finds_each_entry_in_the_printed_contents(tmp_path, browser, css):
-    files = {'01.md': '# Alphaword\n\nText.\n', '02.md': '# Betaword\n\nText.\n'}
-    summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
-    outline = summary['gates']['pdf']['outline']
-    assert not summary['ok'] and outline['result'] == 'fail'
-    assert outline['problems'] == ['«Alphaword» is not in the printed contents text (page 3); CSS may keep it out of print']
 
 
 @needs_pandoc

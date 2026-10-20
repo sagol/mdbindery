@@ -291,7 +291,7 @@ def _flat(reader, items, depth=1):
 
 
 def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None, listed=None, places=None, markers=None,
-          before='', page_numbers=True):
+          before='', page_numbers=True, front=None):
     """The outline, front-matter and metadata gates on the final file, each {'result', 'problems', ...}. printed holds each
     entry's heading words, which the page check looks for on its destination page (a bookmark label may also name an image
     by its alt text); listed holds the words each entry shows in the contents, which must be in the contents pages' own
@@ -340,17 +340,18 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                 at += len(title)
         pages = '' if first is None else f'page {first + 1}' if last == first else f'pages {first + 1}–{last + 1}'
         matched = None
+        if first is not None and markers is not None and None in markers:   # a marker the page could not spell out: no exact
+            skipped.append('the printed contents text: its list markers use counters or a style the check cannot spell out, '
+                           'so where each entry prints was not checked')   # sequence to read, and a looser one admits other text
+            first = None
         for n, (label, *_) in enumerate(rows if first is not None else ()):
             want = normalized(listed[n])
             if not want:
                 skipped.append(f'«{label}»: no printed words in the contents to find')
                 continue
-            mark = markers[n] if markers is not None else ''   # the entry is its own list marker, then its words, right here;
-            if mark is None:   # a marker style the page could not spell out: up to six letters or digits of it
-                found = re.match(r'\w{0,6}?' + re.escape(want), contents[at:])
-                where = at + found.end() - len(want) if found else -1
-            else:   # anything else there means the entry is not where it prints, and its words further on are other text
-                where = at + len(normalized(mark)) if contents.startswith(normalized(mark) + want, at) else -1
+            mark = normalized(markers[n]) if markers is not None else ''   # the entry is its own list marker, then its words,
+            where = at + len(mark) if contents.startswith(mark + want, at) else -1   # right here: anything else means it is not
+                                                                                       # where it prints
             if where < 0:
                 problems.append(f'«{label}» is not in the printed contents text ({pages}); CSS may keep it out of print')
             else:
@@ -365,19 +366,21 @@ def gates(path, rows, meta, toc_title, has_nav, rights, printed=None, links=None
                 if dest is None or reader.get_destination_page_number(dest) != links[name]:
                     problems.append(f'the contents link to {name!r} on page {index + 1} does not open its heading\'s page')
     outline = {'result': 'fail' if problems else 'pass', 'entries': len(rows), 'problems': problems, 'not_checked': skipped}
+    elements = front or {}   # the element itself prints, as the page reported it: its words elsewhere on the page are no proof
+    drawn = lambda part: not elements.get(part) or elements[part].get('shows')
     front, not_applicable = [], []
     title_page = reader.get_destination_page_number(named[place(TITLE)]) if place(TITLE) in named else None
-    if title_page is None or normalized(meta['title']) not in texts[title_page]:
+    if title_page is None or normalized(meta['title']) not in texts[title_page] or not drawn('title'):
         front.append('the title is not on the title page')
     if rights:
         page = reader.get_destination_page_number(named[place(RIGHTS)]) if place(RIGHTS) in named else None
-        if page != title_page or normalized(rights) not in texts[title_page or 0]:
+        if page != title_page or normalized(rights) not in texts[title_page or 0] or not drawn('rights'):
             front.append('the rights line is not on the title page')
     else:
         not_applicable.append('rights: none configured')
     if has_nav and toc_title:
         page = reader.get_destination_page_number(named[place(CONTENTS)]) if place(CONTENTS) in named else None
-        if page is None or normalized(toc_title) not in texts[page]:
+        if page is None or normalized(toc_title) not in texts[page] or not drawn('contents'):
             front.append('the contents heading is not on the first contents page')
     else:
         not_applicable.append('contents heading: ' + ('no title for this language' if has_nav else 'contents disabled or pandoc wrote no contents'))

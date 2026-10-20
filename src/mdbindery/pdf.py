@@ -141,8 +141,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
             if (n.nodeType === Node.TEXT_NODE) {
               if (!n.data.trim()) { add(' '); continue; }   // a space that wraps a line may have no box of its own
               const range = document.createRange(), style = getComputedStyle(n.parentElement);
-              range.selectNodeContents(n);
-              if (range.getClientRects().length > 0 && style.visibility === 'visible' && inks(n.parentElement, style)) {
+              range.selectNodeContents(n);   // its text draws: a box with an area on the page, visible, inked, not clipped away
+              if (Array.from(range.getClientRects()).some(box => onPage(box, n.parentElement)) && style.visibility === 'visible'
+                  && inks(n.parentElement, style) && !masked(n.parentElement)) {
                 add(n.data);
                 shows = true;
               }
@@ -157,24 +158,28 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           }
           if (pseudo && node.nodeType === Node.ELEMENT_NODE) generated(node, '::after');
         };
-        const drawn = img => {   // an image draws: visible, not transparent, an area left after transforms and after every
-          let box = img.getBoundingClientRect();   // ancestor that clips its overflow, on the page; under a clip path, a mask
-          for (let e = img.parentElement; e; e = e.parentElement) {   // or a clip rectangle what is left cannot be told, so
-            const style = getComputedStyle(e);   // it counts as hidden
-            if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+        const masked = el => {   // a clip path, a mask or a clip rectangle on el or above it: what it leaves cannot be told,
+          for (let e = el; e; e = e.parentElement) {   // so what is under it counts as not drawn
+            const style = getComputedStyle(e);
+            if (style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none') !== 'none'
+                || (style.clip !== 'auto' && ['absolute', 'fixed'].includes(style.position))) return true;
+          }
+          return false;
+        };
+        const onPage = (box, el) => {   // what is left of box after every ancestor that clips its overflow (one with a box that
+          for (let e = el; e; e = e.parentElement) {   // is not inline) has an area and lies within the page's printable width
+            const style = getComputedStyle(e);
+            if ((style.overflowX !== 'visible' || style.overflowY !== 'visible') && !['contents', 'inline'].includes(style.display)) {
               const outer = e.getBoundingClientRect();
               box = {left: Math.max(box.left, outer.left), top: Math.max(box.top, outer.top),
                      right: Math.min(box.right, outer.right), bottom: Math.min(box.bottom, outer.bottom)};
             }
           }
-          for (let e = img; e; e = e.parentElement) {
-            const style = getComputedStyle(e);
-            if (style.clipPath !== 'none' || (style.maskImage || style.webkitMaskImage || 'none') !== 'none'
-                || (style.clip !== 'auto' && ['absolute', 'fixed'].includes(style.position))) return false;
-          }
-          return img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && box.right > box.left
-            && box.bottom > box.top && box.right > 0 && box.bottom > 0;
+          return box.right > box.left && box.bottom > box.top && box.right > 0 && box.bottom > 0
+            && box.left < document.documentElement.clientWidth;
         };
+        const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
+          && onPage(img.getBoundingClientRect(), img.parentElement);   // an image draws: visible, not transparent, an area left
         let lays = true;   // root and every ancestor lay out
         for (let el = root; el; el = el.parentElement) if (hides(el)) lays = false;
         if (lays) walk(root);
@@ -188,6 +193,9 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           if (content === 'none') return '';
           return /counter|quote|attr/.test(content) ? null : (content.match(/"((?:[^"\\]|\\.)*)"/g) || []).map(q => q.slice(1, -1)).join('');
         }
+        const counted = e => { const st = getComputedStyle(e);   // counters the book's CSS sets: the ordinal is no longer the place
+          return [st.counterIncrement, st.counterSet].some(v => v && v !== 'none') || !['none', 'list-item 0'].includes(st.counterReset); };
+        if (Array.from(li.parentElement.children).some(c => c.localName === 'li' && counted(c)) || counted(li.parentElement)) return null;
         const type = getComputedStyle(li).listStyleType, n = Array.from(li.parentElement.children).filter(c => c.localName === 'li').indexOf(li) + 1;
         const letters = k => { let out = ''; while (k > 0) { k -= 1; out = String.fromCharCode(97 + k % 26) + out; k = Math.floor(k / 26); } return out; };
         const roman = k => [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'],
@@ -205,10 +213,17 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         if (el === nav || el.contains(nav)) break;
         before += ' ' + scan(el, false).words;
       }
+      const element = selector => {   // a front-matter element as printed: whether anything of it draws
+        const el = document.querySelector(selector);
+        return el ? {shows: scan(el, false).shows} : null;
+      };
+      const front = {title: element('header#title-block-header .title'), rights: element('header#title-block-header p.rights'),
+                     contents: element('nav#TOC > h2, nav#TOC > h1, nav#TOC > header')};
       return {
       text: source.textContent,
       places,
       before,
+      front,
       entries: Array.from(document.querySelectorAll('nav#TOC a[data-mdb-dest]')).map(a => {
         const id = a.getAttribute('data-mdb-dest');
         let target = null;
@@ -243,7 +258,7 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       timeout: 120000});
     fs.writeFileSync(jobs.text, documentState.text, 'utf8');
     fs.writeFileSync(jobs.entries, JSON.stringify({entries: documentState.entries, places: documentState.places,
-      before: documentState.before}), 'utf8');
+      before: documentState.before, front: documentState.front}), 'utf8');
     console.log(JSON.stringify({browser: await browser.version(),
       puppeteer: require('puppeteer/package.json').version}));
   } finally { await browser.close(); }
@@ -400,7 +415,7 @@ def render(cfg, analysis, work, css, cover, destination, date, log, *, runtime):
         outline, front_matter, metadata = pdfnav.gates(final, rows, meta, toc_title, has_nav, rights, places=places,
                                                        printed=[e['text'] for e in entries], listed=[e['words'] for e in entries],
                                                        markers=[e['marker'] for e in entries], before=reported['before'],
-                                                       page_numbers=settings['page_numbers'],
+                                                       page_numbers=settings['page_numbers'], front=reported['front'],
                                                        links={e['target']: row[2] for e, row in zip(entries, rows)})
         final.replace(destination)   # a failed gate keeps the file as a diagnostic, as the word gate always has
     finally:

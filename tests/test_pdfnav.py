@@ -219,3 +219,59 @@ def test_destination_names_are_normalized_by_their_pdf_type():
 def test_a_wrong_metadata_field_fails_the_metadata_gate(tmp_path):
     final, rows, _ = built(tmp_path)
     assert pdfnav.gates(final, rows, dict(META, title='Another'), 'Contents', True, META['rights'])[2]['result'] == 'fail'
+
+
+def contents_problems(tmp_path, pages, heads, listed, markers=None, before='', page_numbers=True, title_page=1, contents_page=2):
+    """The outline gate's contents-text problems for text pages made here: heads are (label, page) per entry."""
+    source, final = tmp_path / 'chrome.pdf', tmp_path / 'final.pdf'
+    dests = [(pdfnav.TITLE, (title_page, 700)), (pdfnav.CONTENTS, (contents_page, 690))] + [
+        (f'mdb-dest-{n}', (page, 600)) for n, (_, page) in enumerate(heads, 1)]
+    make_pdf(source, pages, dests)
+    entries = [{'depth': 1, 'anchor': f'mdb-dest-{n}', 'label': label} for n, (label, _) in enumerate(heads, 1)]
+    rows, _ = pdfnav.project(PdfReader(source), entries, True, '')
+    meta = dict(META, rights='')
+    pdfnav.finalize(source, final, rows, meta)
+    outline = pdfnav.gates(final, rows, meta, 'Contents', True, '', printed=[label for label, _ in heads], listed=listed,
+                           markers=markers, before=before, page_numbers=page_numbers)[0]
+    return [p for p in outline['problems'] if 'printed contents' in p], outline['not_checked']
+
+
+def test_the_contents_gate_reads_the_entries_with_their_own_markers(tmp_path):
+    pages = [['cover'], ['Title'], ['Contents', 'a. First', 'b. Second'], ['First', 'Text.'], ['Second', 'Text.']]
+    heads = [('First', 3), ('Second', 4)]
+    assert contents_problems(tmp_path, pages, heads, ['First', 'Second'], ['a', 'b'])[0] == []
+    assert contents_problems(tmp_path, pages, heads, ['First', 'Second'], ['', ''])[0] != []   # markers are not optional
+
+
+def test_the_contents_gate_never_borrows_an_entry_from_the_text_after_the_contents(tmp_path):
+    pages = [['cover'], ['Title'], ['Contents', 'One', 'One', 'Betaword appears here.'], ['Betaword', 'Text.']]   # shared page
+    problems, _ = contents_problems(tmp_path, pages, [('One', 2), ('Betaword', 3)], ['One', 'Betaword'], ['', ''])
+    assert problems and 'Betaword' in problems[0]
+    pages = [['cover'], ['Title'], ['Contents', '1', 'Betaword appears here.'], ['Betaword', 'Text.']]   # a numeric heading
+    problems, _ = contents_problems(tmp_path, pages, [('1', 2), ('Betaword', 3)], ['1', 'Betaword'], ['', ''])
+    assert problems
+
+
+def test_the_contents_gate_takes_the_heading_on_its_own_page_for_no_entry(tmp_path):
+    pages = [['cover'], ['Title'], ['Contents'], ['Alphaword', 'Text.']]   # the one entry missing from the contents
+    problems, _ = contents_problems(tmp_path, pages, [('Alphaword', 3)], ['Alphaword'], [''])
+    assert problems and 'Alphaword' in problems[0]
+
+
+def test_the_contents_gate_strips_footers_only_on_numbered_pages(tmp_path):
+    pages = [['cover'], ['Title'], ['Contents', 'First', 'Second', '3'], ['First'], ['Second'], ['3']]
+    heads = [('First', 3), ('Second', 4), ('3', 5)]
+    assert contents_problems(tmp_path, pages, heads, ['First', 'Second', '3'], ['', '', ''], page_numbers=False)[0] == []
+
+
+def test_the_contents_gate_skips_a_title_block_it_shares_a_page_with(tmp_path):
+    pages = [['cover'], ['Book title', 'Rights line', 'Contents', 'First'], ['First', 'Text.']]
+    problems, _ = contents_problems(tmp_path, pages, [('First', 2)], ['First'], [''], before='Book title Rights line',
+                                    title_page=1, contents_page=1)
+    assert problems == []
+
+
+def test_the_contents_gate_does_not_guess_markers_it_cannot_spell(tmp_path):
+    pages = [['cover'], ['Title'], ['Contents', 'alpha First'], ['First']]
+    problems, skipped = contents_problems(tmp_path, pages, [('First', 3)], ['First'], [None])
+    assert problems == [] and any('list markers' in n for n in skipped)
