@@ -678,6 +678,7 @@ def test_pdf_bookmarks_hold_only_what_the_printed_contents_show(tmp_path, browse
     ('nav#TOC a { display: block; height: 0; overflow: visible; } nav#TOC a::before { content: "Chapter "; }',   # a host of no
      ['Chapter Map of Mars today', 'Chapter Second']),   # height whose overflow prints
     ('nav#TOC a::before { content: "Chapter "; margin-left: 4px; }', ['Chapter Map of Mars today', 'Chapter Second']),   # a small one
+    ('nav#TOC a::before { content: "Chapter "; display: inline-block; padding-top: 2px; }', ['Chapter Map of Mars today', 'Chapter Second']),
     ('nav#TOC li:first-child a { display: inline-block; width: 400px; overflow: hidden; white-space: nowrap; }',   # a clip that
      ['Map of Mars today', 'Second']),   # cuts nothing
     ('nav#TOC a { display: block; } nav#TOC a::after { content: " suffix"; margin-left: 4px; }',   # a block's suffix starts after
@@ -707,6 +708,9 @@ def test_pdf_bookmarks_hold_the_text_print_css_generates_in_the_contents(tmp_pat
      '::after moved out of view'),   # its own padding, clipped by its element
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 12px; overflow: hidden; }',
      '::before clipping its own overflow'),   # some of it may show: which part cannot be measured
+    ('nav#TOC a { display: inline-block; height: 20px; overflow: hidden; } nav#TOC a::before { content: "Ghostword"; '
+     'display: inline-block; vertical-align: top; padding-top: 100px; }', '::before moved out of view'),   # pushed below its
+    # clipping host while the entry's own words stay in view
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; padding-right: 100px; overflow: hidden; '
      'white-space: nowrap; }', '::before clipping its own overflow'),   # no content width, but its padding box shows the text
     ('nav#TOC a::before { content: "Ghostword"; display: inline-block; width: 0; overflow: clip; overflow-clip-margin: 100px; }',

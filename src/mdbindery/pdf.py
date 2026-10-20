@@ -165,9 +165,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const runs = Array.from(content.getClientRects()).filter(q => q.width > 0);
           const start = !r ? 0 : which === '::before' ? (rects.length ? rects[0].left : r.left) + indent + margin
             : (runs.length ? runs[runs.length - 1].right : rects.length ? rects[0].left : r.left) + margin;
-          const moved = indent !== 0 || margin !== 0;
-          if (r && !onPage({left: moved ? start : r.left, top: r.top, right: moved ? start + size : Math.max(r.right, r.left + size),
-                            bottom: Math.max(r.bottom, r.top + (parseFloat(style.lineHeight) || 1.2 * size))}, el)) {
+          const drop = ['inline', 'contents'].includes(style.display) ? 0   // a box of its own moves its text down by its own top
+            : (parseFloat(style.marginTop) || 0) + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);   // offsets
+          const moved = indent !== 0 || margin !== 0 || drop !== 0, line = parseFloat(style.lineHeight) || 1.2 * size;
+          if (r && !onPage({left: moved ? start : r.left, top: r.top + drop, right: moved ? start + size : Math.max(r.right, r.left + size),
+                            bottom: drop ? r.top + drop + line : Math.max(r.bottom, r.top + line)}, el)) {
             if (moved && onPage({left: r.left, top: r.top, right: Math.max(r.right, r.left + size),   // moved off a page its
                                  bottom: Math.max(r.bottom, r.top + size)}, el))   // element is on: Chrome still writes its text
               unresolved.push(`${which} moved out of view by a margin, padding or text-indent`);   // there, apart from the entry
