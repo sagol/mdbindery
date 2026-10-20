@@ -152,7 +152,7 @@ The guide is private too, so read it with the author's read-only token, which th
 The simplest way is gh. It keeps the token in its own store (the system keyring, or on a server without one its `hosts.yml`, readable only by you), the one place the setup guide keeps it too, since the clones need it next:
 
 ```bash
-sudo apt-get install -y gh
+sudo apt-get install -y gh                       # Debian and Ubuntu; elsewhere see https://github.com/cli/cli#installation
 gh auth login --with-token < ~/.github-token
 gh api repos/sagol/Mdnarra/contents/docs/SETUP.md -H 'Accept: application/vnd.github.raw'
 ```
