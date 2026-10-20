@@ -954,6 +954,7 @@ def test_pdf_contents_gate_finds_no_entry_outside_the_printed_contents(tmp_path,
     ('nav#TOC ul { list-style-type: lower-alpha; }', True),
     ('nav#TOC ul { list-style-type: upper-roman; }', True),
     ('nav#TOC ul { list-style-type: decimal; }', True),
+    ('nav#TOC ul { list-style-type: decimal; } nav#TOC li:first-child { display: block; }', True),   # the next items print 1 and 2
     ('', False),   # unnumbered pages: a contents entry "3" on page 3 is no footer
 ])
 def test_pdf_contents_gate_accepts_list_markers_and_unnumbered_pages(tmp_path, browser, css, numbers):
@@ -989,6 +990,16 @@ def test_pdf_an_image_list_marker_leaves_the_contents_text_unchecked(tmp_path, b
     summary = build(nav_book(tmp_path, files, lang='en-US', css=css), out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
     outline = summary['gates']['pdf']['outline']   # the image prints when it loads; decimal is only its fallback
     assert summary['ok'] and any('list marker' in n for n in outline['not_checked']), outline
+
+
+@needs_pandoc
+@pytest.mark.parametrize('css', ['nav#TOC img { width: 100px; height: 40px; object-fit: contain; transform: rotate(1deg); }',
+                                 'nav#TOC img { width: 100px; height: 40px; object-fit: none; transform: rotate(1deg); }'])
+def test_pdf_a_turned_letterboxed_image_inside_the_page_prints(tmp_path, browser, css):
+    book = nav_book(tmp_path, {'01.md': '# ![Logo](logo.png)\n\nText.\n', '02.md': '# Second\n\nText.\n'}, lang='en-US', css=css)
+    Image.new('RGB', (20, 20), 'blue').save(book.base / 'logo.png')   # its pixels fill only part of the box, all of it on the page
+    summary = build(book, out_dir=tmp_path / 'out', output_format='pdf', log=quiet)
+    assert summary['ok'], summary['gates']
 
 
 @needs_pandoc

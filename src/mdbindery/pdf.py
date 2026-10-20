@@ -341,8 +341,11 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
           const x = at(px, bw - cw), y = at(py, bh - ch);
           const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(bw, x + cw), y1 = Math.min(bh, y + ch);
           if (!(x1 > x0 && y1 > y0)) return null;   // nothing inside its box (NaN compares false: not read, not drawn)
-          if (skewed(img)) return x0 === 0 && y0 === 0 && x1 === bw && y1 === bh ? b : null;   // turned: its bounds stand for its
-          // pixels only when they fill the whole box; a part of the box cannot be mapped, so it does not count as drawn
+          if (skewed(img)) {   // turned: its bounds stand for its pixels when they fill the whole box, or when the whole turned
+            if (x0 === 0 && y0 === 0 && x1 === bw && y1 === bh) return b;   // frame is inside every clip and the page, so
+            const c = clipped(b, img.parentElement);   // wherever the pixels sit in it they print; a frame partly cut off
+            return c.left <= b.left + 0.5 && c.top <= b.top + 0.5 && c.right >= b.right - 0.5 && c.bottom >= b.bottom - 0.5 ? b : null;
+          }   // cannot be mapped, so it does not count as drawn
           return {left: left + x0 * sx, top: top + y0 * sy, right: left + x1 * sx, bottom: top + y1 * sy};   // the visible part
         };
         const drawn = img => img.checkVisibility({visibilityProperty: true, opacityProperty: true}) && !flat(img) && !masked(img)
@@ -368,8 +371,10 @@ const jobs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
         // fallback: which of the two prints cannot be told here
         const counted = e => { const st = getComputedStyle(e);   // counters the book's CSS sets: the ordinal is no longer the place
           return [st.counterIncrement, st.counterSet].some(v => v && v !== 'none') || !['none', 'list-item 0'].includes(st.counterReset); };
-        if (Array.from(li.parentElement.children).some(c => c.localName === 'li' && counted(c)) || counted(li.parentElement)) return null;
-        const type = getComputedStyle(li).listStyleType, n = Array.from(li.parentElement.children).filter(c => c.localName === 'li').indexOf(li) + 1;
+        const listed = c => /\blist-item\b/.test(getComputedStyle(c).display);   // only list items step the counter: an li shown
+        // as a block or hidden is passed over
+        if (Array.from(li.parentElement.children).some(c => (c.localName === 'li' || listed(c)) && counted(c)) || counted(li.parentElement)) return null;
+        const type = getComputedStyle(li).listStyleType, n = Array.from(li.parentElement.children).filter(listed).indexOf(li) + 1;
         const letters = k => { let out = ''; while (k > 0) { k -= 1; out = String.fromCharCode(97 + k % 26) + out; k = Math.floor(k / 26); } return out; };
         const roman = k => [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'],
           [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']].reduce((out, [v, r]) => { while (k >= v) { out += r; k -= v; } return out; }, '');
