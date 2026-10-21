@@ -2,7 +2,7 @@
 
 [Website and documentation](https://sagol.github.io/mdbindery/)
 
-> **Setting up mdbindery with Mdnarra and mdeditorial, which are private?** Read [Setting up the whole book toolset](#setting-up-the-whole-book-toolset) before you touch the token. The token never goes in a command's arguments: no `curl -H "Authorization: …"`, no `git -c http.extraHeader=…`, no `grep "$TOKEN"`, since every process on the machine can read arguments. Give it to curl on standard input (`--header @-`), to git through its environment, and when you check for a leak, read the pattern from the token's file: `grep -rlF -f ~/.github-token DIR`.
+> **Setting up mdbindery with Mdnarra and mdeditorial, which are private?** Read [Setting up the whole book toolset](#setting-up-the-whole-book-toolset) before you touch the token. The token never goes in a command's arguments: no `curl -H "Authorization: …"`, no `git -c http.extraHeader=…`, no `grep "$TOKEN"`, since every process on the machine can read arguments. Give it to curl on standard input (`--header @-`), to git through its environment, and when you check for a leak, read the pattern from the token's file: `grep -rlF -f ~/.github-token DIR`. With the token in git's environment, don't print git's settings (`git config --get-regexp http` shows the header).
 
 Build EPUB 3 ebooks or paginated PDFs from a folder or GitHub repository of Markdown chapters.
 
@@ -180,7 +180,8 @@ export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$G
 Then follow the guide from its first step. To check afterwards that no file holds the token, take the pattern from its file, never from a variable on the command line:
 
 ```bash
-grep -rlF -f ~/.github-token ~/src ~/.local/share 2>/dev/null || echo "no file holds the token"
+grep -rlF -f ~/.github-token ~/src ~/.local/share; s=$?   # files that hold it are listed; status 2 is an error
+[ $s -eq 1 ] && echo "no file holds the token"; [ $s -gt 1 ] && echo "the check did not finish: see the errors above"
 ```
 
 ## Credits
